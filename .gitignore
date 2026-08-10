@@ -1,0 +1,21 @@
+# CMake 构建目录
+build/
+build-*/
+cmake-build-*/
+
+# 编辑器 / 语言服务器
+.cache/
+.vscode/
+.idea/
+compile_commands.json
+.qmlls.ini
+*.user
+*.autosave
+CMakeLists.txt.user*
+
+# QML 缓存
+*.qmlc
+*.jsc
+
+*.swp
+.DS_Store

@@ -1,0 +1,87 @@
+#pragma once
+
+#include <QHash>
+#include <QObject>
+#include <QString>
+
+/**
+ * 「有设备想连接本机」的待决请求（PROTOCOL.md §3.8）。
+ *
+ * 本机作为**被请求方**时用这个类。对端手上还没有 token，就来敲 /api/authorize；
+ * 本机弹窗，用户点「允许」之后 token 才交出去。
+ *
+ * 这是整套协议里唯一免鉴权的接口，所有防滥用的约束都落在这里：
+ *
+ *  - 同一时刻只留一个待决请求，多的一律拒掉，免得被刷一屏弹窗；
+ *  - 取结果的 id 是 128 位随机数，只发给请求方，它是拿到 token 的唯一凭证；
+ *  - 用户拒绝之后该地址进冷却，堵死「一直弹到用户点错为止」；
+ *  - 超时按拒绝算，时限由本机说了算，不听请求方的；
+ *  - 有一个能彻底关掉这个接口的开关。
+ *
+ * 服务端是单线程 Qt 事件循环（HttpServer 每条连接一个 QObject，不开线程），
+ * 所以这里不需要加锁。
+ */
+class AuthRequests : public QObject
+{
+    Q_OBJECT
+
+public:
+    enum class Status { Pending, Granted, Denied, Expired };
+
+    struct Request
+    {
+        QString id;
+        /** 4 位确认码，请求方生成、两端同时显示，用户靠它分辨弹的是不是自己那一下。 */
+        QString code;
+        QString name;
+        QString os;
+        QString host;
+        int port = 0;
+        qint64 createdAt = 0;
+        Status status = Status::Pending;
+
+        bool isNull() const { return id.isEmpty(); }
+        bool expired(qint64 now) const;
+        /** 还剩几秒，给界面倒计时用。 */
+        int remainingSec(qint64 now) const;
+    };
+
+    explicit AuthRequests(QObject *parent = nullptr);
+
+    bool enabled() const { return m_enabled; }
+    /** 关掉时连带清空待决请求：开关关了还留着一个弹窗没有意义。 */
+    void setEnabled(bool v);
+
+    /** 登记一个请求。已有请求在等 / 该地址在冷却 / 开关关着 → 返回空的 Request。 */
+    Request create(const QString &name, const QString &os, const QString &host, int port,
+                   const QString &code);
+
+    /** 按 id 查结果。只有请求方知道 id。查不到 → 空的 Request（对应 404）。 */
+    Request lookup(const QString &id);
+
+    void decide(const QString &id, bool granted);
+
+    /** 服务端停掉时调用：没人能再来取结果了，留着待决请求只会挂在界面上。 */
+    void clear();
+
+    /**
+     * 主动清一次过期的东西。平时靠上面几个入口顺手清理就够了，但没人来敲门的那 60 秒里
+     * 一个入口都不会被调到 —— 界面的倒计时定时器负责在归零时叫一下。
+     */
+    void sweepExpired() { sweep(); }
+
+    Request pending() const { return m_pending; }
+
+signals:
+    void pendingChanged();
+
+private:
+    /** 清掉过期的东西。每个入口都调一次，省掉一个只为了清理而存在的定时器。 */
+    void sweep();
+    static QString newId();
+
+    bool m_enabled = true;
+    Request m_pending;
+    QHash<QString, Request> m_decided;
+    QHash<QString, qint64> m_blocked;
+};
