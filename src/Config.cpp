@@ -54,7 +54,9 @@ void Config::load()
     ensure(QStringLiteral("serverPort"), int(afmu::kDefaultHttpPort));
     ensure(QStringLiteral("discoverable"), true);
     ensure(QStringLiteral("readOnly"), false);
-    ensure(QStringLiteral("autoStartServer"), false);
+    // 默认开着：接收服务不跑，本机既收不到文件也不会被别的设备发现 —— 这是整个
+    // 应用一半的功能。想彻底关掉的人在「接收服务」页取消勾选即可，选择会被记住。
+    ensure(QStringLiteral("autoStartServer"), true);
     // 默认开着：没有 token 的设备靠它来敲门，关掉之后只剩手抄 token / 扫码两条路
     ensure(QStringLiteral("allowAuthRequests"), true);
     ensure(QStringLiteral("discoverTimeoutMs"), 1500);
@@ -105,7 +107,7 @@ QString Config::inboxDir() const { return m_json.value(QStringLiteral("inboxDir"
 int Config::serverPort() const { return m_json.value(QStringLiteral("serverPort")).toInt(afmu::kDefaultHttpPort); }
 bool Config::discoverable() const { return m_json.value(QStringLiteral("discoverable")).toBool(true); }
 bool Config::readOnly() const { return m_json.value(QStringLiteral("readOnly")).toBool(false); }
-bool Config::autoStartServer() const { return m_json.value(QStringLiteral("autoStartServer")).toBool(false); }
+bool Config::autoStartServer() const { return m_json.value(QStringLiteral("autoStartServer")).toBool(true); }
 bool Config::allowAuthRequests() const { return m_json.value(QStringLiteral("allowAuthRequests")).toBool(true); }
 int Config::discoverTimeoutMs() const { return m_json.value(QStringLiteral("discoverTimeoutMs")).toInt(1500); }
 QString Config::lastHost() const { return m_json.value(QStringLiteral("lastHost")).toString(); }

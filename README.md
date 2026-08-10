@@ -66,7 +66,7 @@ cmake --build build
 也可以照旧手抄：把手机首页那 10 位 token 填进「设备」页的输入框，填了就用填的那个，
 不会再弹授权。token 在手机上重新生成过之后这里会拿到 401，此时同样会自动改走授权流程。
 
-授权连接的约束（细节见 [PROTOCOL.md §3.8](../AndroidFileManagerUtils/docs/PROTOCOL.md)）：
+授权连接的约束（细节见 [PROTOCOL.md §3.8](https://github.com/aynX-skii/AndroidFileManagerUtils/blob/main/docs/PROTOCOL.md)）：
 同一时刻只允许一个待决请求，被拒绝的地址会进冷却，60 秒没确认按拒绝处理，
 两端都可以在设置里把这个功能整个关掉。
 
@@ -76,8 +76,12 @@ cmake --build build
 FileBridge 的 PC 扫到本机之后点「请求授权」，**本机**会弹确认框，点「允许」才把本机
 token 交出去。之后对方回填自己的 token（§3.9），两个方向一次配好。
 
-前提是本机的接收服务在跑——被发现、被连接、收文件都靠它。连接任何设备时会自动把它带起来，
-想让它开机就在，去「接收服务」页勾上「启动应用时自动开启服务」。
+前提是本机的接收服务在跑——被发现、被连接、收文件都靠它，所以它**默认随应用启动**。
+另外，连接任何设备时也会顺手把它带起来：报给对方的端口必须真有人听着，否则对方推文件
+过来只会撞上一句 "Failed to connect"，而本机这边毫无提示。
+
+不想让它自己起，去「接收服务」页取消「启动应用时自动开启服务」，选择会被记住。
+服务是明文 HTTP + 10 位 token，只防误连，别在公共 Wi-Fi 上开着。
 
 下载落到「设置 → 下载目录」（默认 `~/Downloads/FileBridge`）。传输中是
 `<文件名>.<远端路径指纹>.afmu-part`，完整收完才 `rename` 成正式名——中断了绝不会留下
@@ -124,7 +128,7 @@ adb reverse tcp:8765  tcp:8765     # 反过来，让手机能访问本机的服�
 ## 已验证的行为
 
 对着自己的服务端跑过
-[../AndroidFileManagerUtils/docs/LINUX-CLIENT.md](../AndroidFileManagerUtils/docs/LINUX-CLIENT.md)
+[docs/LINUX-CLIENT.md](https://github.com/aynX-skii/AndroidFileManagerUtils/blob/main/docs/LINUX-CLIENT.md)
 §6 的验证清单：
 
 - 无 token / 错 token → `401`；只读模式下 upload / delete / mkdir → `403`，读仍然 `200`
