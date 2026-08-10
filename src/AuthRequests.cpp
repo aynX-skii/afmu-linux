@@ -13,6 +13,34 @@ constexpr qint64 kTimeoutMs = qint64(afmu::kAuthTimeoutSec) * 1000;
 constexpr qint64 kResultRetentionMs = kTimeoutMs + 30 * 1000;
 constexpr qint64 kDenyCooldownMs = 60 * 1000;
 
+// 这是唯一免鉴权的接口，局域网里谁都能调，而传进来的文本直接进弹窗和日志。
+// 去掉控制字符并截断，免得有人用一个精心构造的设备名把按钮顶出对话框。
+QString displayText(const QString &raw, int maxLen)
+{
+    QString out;
+    out.reserve(qMin(raw.size(), maxLen));
+    for (const QChar c : raw) {
+        if (out.size() >= maxLen)
+            break;
+        if (c.isPrint())
+            out.append(c);
+    }
+    return out.trimmed();
+}
+
+// 确认码由请求方生成、两端同时显示，接收方必须原样显示。
+// 不是 4 位数字就说明对端在乱来，显示占位符而不是它给的东西。
+QString confirmCode(const QString &raw)
+{
+    if (raw.size() != 4)
+        return QStringLiteral("----");
+    for (const QChar c : raw) {
+        if (c < u'0' || c > u'9')
+            return QStringLiteral("----");
+    }
+    return raw;
+}
+
 } // namespace
 
 bool AuthRequests::Request::expired(qint64 now) const
@@ -55,9 +83,11 @@ AuthRequests::Request AuthRequests::create(const QString &name, const QString &o
 
     Request r;
     r.id = newId();
-    r.code = code.isEmpty() ? QStringLiteral("----") : code;
-    r.name = name.isEmpty() ? host : name;
-    r.os = os;
+    r.code = confirmCode(code);
+    r.name = displayText(name, 64);
+    if (r.name.isEmpty())
+        r.name = host;
+    r.os = displayText(os, 16);
     r.host = host;
     r.port = port;
     r.createdAt = QDateTime::currentMSecsSinceEpoch();

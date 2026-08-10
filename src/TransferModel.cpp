@@ -459,6 +459,18 @@ void TransferModel::startDownload(Task *t)
             return;
         }
 
+        // 收到的字节数必须和对端声明的总长对得上。对端中途断开时，Qt 多半会报
+        // RemoteHostClosedError，但那是平台行为不是本端把的关：只要短了就算失败，
+        // .afmu-part 留着让「重试」从断点续上（PROTOCOL.md §4.3）。
+        if (tt->total > 0 && tt->done != tt->total) {
+            delete tt->file;
+            tt->file = nullptr;
+            finish(tt, Failed,
+                   T(QStringLiteral("传输不完整：只收到 %1 / %2，可重试续传"))
+                       .arg(afmu::humanSize(tt->done), afmu::humanSize(tt->total)));
+            return;
+        }
+
         delete tt->file;
         tt->file = nullptr;
 
@@ -524,9 +536,14 @@ void TransferModel::startUpload(Task *t)
             finish(tt, Failed, PeerClient::errorFrom(reply, body));
             return;
         }
+        // saved 是实际落盘路径。ok:true 配一个空 saved 等于「什么都没写」，
+        // 这时退回用原文件名报成功，就是文件静默丢失、用户毫不知情（§3.4）
         const QJsonArray saved = o.value(QStringLiteral("saved")).toArray();
-        if (!saved.isEmpty())
-            tt->remotePath = saved.first().toString();
+        if (saved.isEmpty()) {
+            finish(tt, Failed, T(QStringLiteral("对端回了成功，却没有保存任何文件")));
+            return;
+        }
+        tt->remotePath = saved.first().toString();
         tt->done = tt->total;
         finish(tt, Completed);
     });

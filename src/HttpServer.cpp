@@ -921,6 +921,12 @@ private:
         m_bodyRemaining = lenHeader.isEmpty() ? -1 : lenHeader.toLongLong();
 
         if (ctype.toLower().startsWith("multipart/form-data")) {
+            if (chunked) {
+                // 分块编码的 multipart 得先解 chunk 再喂边界扫描器，本端没串这一层。
+                // 直接拒绝，好过把 chunk 头当成文件内容写进文件里
+                sendJson(400, errObj(QStringLiteral("chunked multipart is not supported")));
+                return;
+            }
             const int bpos = ctype.toLower().indexOf("boundary=");
             if (bpos < 0) {
                 sendJson(400, errObj(QStringLiteral("missing multipart boundary")));
@@ -1063,7 +1069,13 @@ private:
         Q_UNUSED(ctx)
         const QString safe = afmu::sanitizeFileName(rawName);
         m_finalName = safe;
-        m_partPath = QDir(m_uploadDir).filePath(safe + QLatin1String(afmu::kPartSuffix));
+        // 临时名按本次传输编号区分，不能只用最终名：正式名此刻还不存在，uniqueTarget
+        // 会把同一个名字发给两条并发连接，两边交错写进同一个 .afmu-part，最后各自
+        // rename 出一个静默损坏的文件。服务端这侧没有续传，随机名不损失任何东西。
+        m_inId = m_server->nextTransferId();
+        m_partPath = QDir(m_uploadDir)
+                         .filePath(safe + QLatin1Char('.') + QString::number(m_inId, 16)
+                                   + QLatin1String(afmu::kPartSuffix));
 
         delete m_inFile;
         m_inFile = new QFile(m_partPath);
@@ -1074,7 +1086,6 @@ private:
             return false;
         }
         m_inDone = 0;
-        m_inId = m_server->nextTransferId();
         emit m_server->transferStarted(m_inId, safe, expectedTotal, true);
         return true;
     }
@@ -1233,6 +1244,7 @@ private:
     void sendHeaders(int code, qint64 contentLength,
                      const QList<QPair<QByteArray, QByteArray>> &extra = {})
     {
+        closeIfBodyPending();
         QByteArray h;
         h += "HTTP/1.1 " + QByteArray::number(code) + " " + statusText(code) + "\r\n";
         h += "Cache-Control: no-store\r\n";
@@ -1244,10 +1256,15 @@ private:
         m_sock->write(h);
     }
 
-    // 请求体还没读就要拒绝时，流位置必然错乱：剩下的body会被当成流水线里的下一个请求。
-    // PROTOCOL.md §2.3 要求这种情况发 Connection: close。
+    // 请求体还没读就回响应时，流位置必然错乱：剩下的 body 会被当成流水线里的下一个请求，
+    // 解析出一堆莫名其妙的 400。PROTOCOL.md §2.3 要求这种情况发 Connection: close。
+    //
+    // 和状态码无关：/api/pair、/api/authorize、/api/mkdir、/api/delete 都不读请求体，
+    // 它们回 200 时同样错位。判据只有一个 —— 还在 Phase::Head 说明这条 body 一字未读。
     void closeIfBodyPending()
     {
+        if (m_phase != Phase::Head)
+            return;
         if (m_headers.value("transfer-encoding").toLower().contains("chunked")
             || m_headers.value("content-length").toLongLong() > 0) {
             m_close = true;
@@ -1256,8 +1273,6 @@ private:
 
     void sendJson(int code, const QJsonObject &o)
     {
-        if (code >= 400 && m_phase == Phase::Head)
-            closeIfBodyPending();
         const QByteArray body = QJsonDocument(o).toJson(QJsonDocument::Compact);
         sendHeaders(code, body.size(), {{"Content-Type", "application/json; charset=utf-8"}});
         if (m_method != "HEAD")
@@ -1303,9 +1318,13 @@ private:
             m_phase = Phase::Closed;
             m_sock->flush();
             m_sock->disconnectFromHost();
-        } else if (!m_buf.isEmpty()) {
-            QTimer::singleShot(0, this, &HttpConnection::onReadyRead);
+            return;
         }
+        // 也要看 socket 里还压着没有：发送文件期间 readyRead 来过一次就被丢掉了
+        // （那时 m_phase 是 Sending，两个分支都不进），数据留在内核缓冲区里，
+        // 不会再有第二次通知，下一个请求就这么挂到 120 秒 idle 超时。
+        if (!m_buf.isEmpty() || m_sock->bytesAvailable() > 0)
+            QTimer::singleShot(0, this, &HttpConnection::onReadyRead);
     }
 
     void abortAll()
