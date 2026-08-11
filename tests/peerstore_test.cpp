@@ -13,6 +13,7 @@
 
 #include "../src/Identity.h"
 #include "../src/PairSas.h"
+#include "../src/RollingId.h"
 #include "../src/PeerStore.h"
 #include "../src/Protocol.h"
 #include "../src/ProtocolConstants.h"
@@ -310,6 +311,49 @@ int main(int argc, char **argv)
                                  QString())
                   .isEmpty(),
               "既没 token 也没指纹时不出码");
+    }
+
+    // ------------------------------------------------------------ 滚动 rid（草案 §6.1）
+    {
+        const QByteArray fp1(32, '\x11');
+        const QByteArray fp2(32, '\x22');
+        // 时刻本身不重要，重要的是它落在窗口的**正中间**：这样 ±100 秒不跨窗口，
+        // 测的才是「同窗口一致」而不是「碰巧边界对上」。
+        // 窗口 5666667 从 1700000100 开始（1700000100 / 300 恰好整除），中点 +150。
+        const qint64 t = 1700000250;
+
+        const QString rid = afmu::rollingId(fp1, t);
+        check(rid.size() == 8, "rid 是 8 位 hex（4 字节）");
+        check(rid == rid.toLower(), "统一小写，免得两端因为大小写认不出对方");
+        check(afmu::rollingId(fp1, t + 100) == rid, "同一个窗口内不变");
+        check(afmu::rollingId(fp1, t - 100) == rid, "同一个窗口内不变（往前）");
+        check(afmu::rollingId(fp1, t + 300) != rid, "跨一个窗口就换值 —— 不换的话它就是个长期标识");
+        check(afmu::rollingId(fp2, t) != rid, "不同设备不同值");
+
+        check(afmu::rollingId(QByteArray(31, '\x11'), t).isEmpty(), "指纹长度不对返回空");
+        check(afmu::rollingId(fp1, -1).isEmpty(), "负时间戳返回空，不产出一个能参与比对的值");
+
+        // 空串绝不能算「匹配上了」：两台都算不出 rid 的设备会互相认成对方。
+        check(!afmu::ridMatches(fp1, QString(), t), "空 rid 不匹配任何东西");
+        check(!afmu::ridMatches(QByteArray(31, '\x11'), rid, t), "指纹不合法时不匹配");
+
+        check(afmu::ridMatches(fp1, rid, t), "自己算的自然匹配");
+        check(afmu::ridMatches(fp1, rid.toUpper(), t), "hex 大小写不敏感");
+        check(!afmu::ridMatches(fp2, rid, t), "别人的 rid 不匹配");
+
+        // 边界抖动：对方在上一个窗口发的应答，我这边已经跨过去了，必须还认得出来。
+        // 只认当前窗口的话，每 5 分钟就有一小段时间谁也认不出谁。
+        check(afmu::ridMatches(fp1, rid, t + 300), "上一个窗口的 rid 也接受");
+        check(!afmu::ridMatches(fp1, rid, t + 600), "再往前就不接受了，接受窗口不是无限的");
+
+        // 打出来当 Android 端 RollingIdTest 的向量。两端算得不一样的表现是
+        // 「配过对的设备在列表里永远显示成陌生地址」—— 不报错，只是功能悄悄没了。
+        std::fprintf(stderr, "  [向量] rid(fp=0x11×32, t=%lld) = %s\n", static_cast<long long>(t),
+                     qPrintable(rid));
+        std::fprintf(stderr, "  [向量] rid(fp=0x22×32, t=%lld) = %s\n", static_cast<long long>(t),
+                     qPrintable(afmu::rollingId(fp2, t)));
+        std::fprintf(stderr, "  [向量] rid(fp=0x11×32, t=0)          = %s\n",
+                     qPrintable(afmu::rollingId(fp1, 0)));
     }
 
     // ------------------------------------------------------------

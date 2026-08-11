@@ -36,6 +36,7 @@ set(AFMU_CPP
     src/Identity.h            src/Identity.cpp
     src/Tls.h                 src/Tls.cpp
     src/PairSas.h             src/PairSas.cpp
+    src/RollingId.h           src/RollingId.cpp
     src/PeerStore.h           src/PeerStore.cpp
     src/I18n.h                src/I18n.cpp
     src/Discovery.h           src/Discovery.cpp
@@ -133,6 +134,7 @@ if(AFMU_TESTS)
         src/Identity.h   src/Identity.cpp
         src/JsonFile.h   src/JsonFile.cpp
         src/PairSas.h    src/PairSas.cpp
+        src/RollingId.h  src/RollingId.cpp
         src/Protocol.h   src/Protocol.cpp
     )
     target_include_directories(afmu_peerstore_test PRIVATE src)

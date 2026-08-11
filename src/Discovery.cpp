@@ -3,7 +3,10 @@
 
 #include <QDateTime>
 
+#include "Identity.h"
+#include "PeerStore.h"
 #include "Protocol.h"
+#include "RollingId.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -190,12 +193,17 @@ void Discovery::readProbeReplies()
             m_knownNames.insert(key, name);
         if (!os.isEmpty())
             m_knownOs.insert(key, os);
+
+        // 配对表比 m_knownNames 强：后者只是这次进程里碰巧见过，按 host:port 存，
+        // 换个 IP 就丢了；配对表按指纹存，换 IP 照样认得出来。
+        const QString fp = identify(o, hostStr, port, &name, &os);
+
         if (name.isEmpty())
             name = m_knownNames.value(key);
         if (os.isEmpty())
             os = m_knownOs.value(key, QStringLiteral("unknown"));
 
-        emit deviceFound(name.isEmpty() ? hostStr : name, os, hostStr, port);
+        emit deviceFound(name.isEmpty() ? hostStr : name, os, hostStr, port, fp);
     }
 }
 
@@ -204,6 +212,60 @@ void Discovery::setAdvertisement(const QString &name, quint16 port, bool discove
     m_advName = name;
     m_advPort = port;
     m_discoverable = discoverable;
+}
+
+void Discovery::setIdentity(const afmu::Identity *id, PeerStore *peers)
+{
+    m_identity = (id && id->isValid()) ? id : nullptr;
+    m_peers = peers;
+}
+
+/**
+ * 收到的应答是不是配对表里的某一台。认出来了就回填名字/系统并刷新地址提示。
+ *
+ * 认不出来是常态，不是错误：陌生设备、v1 设备、以及所有还没配对的设备都认不出来。
+ */
+QString Discovery::identify(const QJsonObject &reply, const QString &host, int port,
+                            QString *name, QString *os)
+{
+    if (!m_peers)
+        return {};
+
+    // 配对模式下对端直接给了 fp（§6.2）。它是明文的、故意的 —— 指纹是公钥指纹，
+    // 泄露它不造成访问权损失。但**给了不等于可信**：只有表里已有的才算认识，
+    // 否则任何人报一个指纹就能冒充成「你认识的设备」。
+    const QString claimed = PeerStore::normalizeFingerprint(
+        reply.value(QStringLiteral("fp")).toString());
+    if (!claimed.isEmpty() && m_peers->isPaired(claimed))
+        return noteIdentified(claimed, host, port, name, os);
+
+    const QString rid = reply.value(QStringLiteral("rid")).toString();
+    if (rid.isEmpty())
+        return {};
+
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    const auto records = m_peers->all();
+    for (const PeerRecord &r : records) {
+        if (afmu::ridMatches(afmu::Identity::fromBase32(r.fp), rid, now))
+            return noteIdentified(r.fp, host, port, name, os);
+    }
+    return {};
+}
+
+QString Discovery::noteIdentified(const QString &fp, const QString &host, int port, QString *name,
+                                  QString *os)
+{
+    // 应答里自带的名字优先：那是对端此刻的名字，配对表里那个可能是几个月前的。
+    // 名字是给人看的，不参与任何判定，所以「新的更好」。
+    const PeerRecord r = m_peers->find(fp);
+    if (name && name->isEmpty() && !r.name.isEmpty())
+        *name = r.name;
+    if (os && os->isEmpty() && !r.os.isEmpty())
+        *os = r.os;
+    // 换了 IP 也认得出来，正是 rid 存在的理由之一（草案 §13 问题 3）。
+    // 刷新提示之后，下次连接就能直接找到该钉哪个指纹。
+    m_peers->noteSeen(fp, host, port);
+    return fp;
 }
 
 bool Discovery::responderRunning() const
@@ -264,9 +326,23 @@ void Discovery::readRequests()
         // 设备名和系统只在配对模式下给（PROTOCOL.md §1.5）。常态下应答它们，
         // 等于任何人发一个 UDP 包就能拿到「这台机器叫 icelab、跑 Linux」——
         // 一次不需要任何凭证的信息泄露，而且发生在用户完全不知情的时候。
+        // 滚动标识（草案 §6.1）。常态下也给：陌生人看到的只是一串随机 hex，
+        // 而已经配过对的设备算得出同一个值，于是「不泄露设备名」和
+        // 「认识的设备还认得出来」可以同时成立。
+        if (m_identity) {
+            const QString rid =
+                afmu::rollingId(m_identity->fingerprint(), QDateTime::currentSecsSinceEpoch());
+            if (!rid.isEmpty())
+                o.insert(QStringLiteral("rid"), rid);
+        }
         if (pairingMode()) {
             o.insert(QStringLiteral("name"), m_advName);
             o.insert(QStringLiteral("os"), QStringLiteral("linux"));
+            // 配对模式下才给指纹：这 60 秒是用户主动开的。
+            // 注意这是**一次泄露 = 永久可追踪** —— 谁在这段时间抓到 fp，
+            // 此后就能算出本机每个窗口的 rid（§6.2 的注）。所以它限时。
+            if (m_identity)
+                o.insert(QStringLiteral("fp"), m_identity->fingerprintBase32());
         }
         // 应答里绝不包含 token
         const QByteArray reply = QJsonDocument(o).toJson(QJsonDocument::Compact);

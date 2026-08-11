@@ -64,6 +64,7 @@ AppController::AppController(QObject *parent)
     if (m_identity->ensure(QDir(configDir).filePath(QStringLiteral("identity.pem")))) {
         m_server->setIdentity(m_identity.get(), m_peers);
         m_client->setIdentity(m_identity.get(), m_peers);
+        m_discovery->setIdentity(m_identity.get(), m_peers);
         appendLog(m_server->tlsReady()
                       ? T(QStringLiteral("本机指纹 %1")).arg(m_identity->fingerprintDisplay())
                       : T(QStringLiteral("本机身份可用，但 TLS 没能就绪，只能走明文")));
@@ -75,8 +76,9 @@ AppController::AppController(QObject *parent)
     m_client->setToken(m_config->peerToken());
 
     connect(m_discovery, &Discovery::deviceFound, this,
-            [this](const QString &name, const QString &os, const QString &host, int port) {
-                m_devices->upsert(DeviceInfo{name, os, host, port});
+            [this](const QString &name, const QString &os, const QString &host, int port,
+                   const QString &fp) {
+                m_devices->upsert(DeviceInfo{name, os, host, port, fp});
             });
     connect(m_discovery, &Discovery::probeFinished, this, [this] {
         m_scanning = false;
@@ -774,6 +776,10 @@ void AppController::approveIncomingAuth()
         rec.lastPort = r.port > 0 ? r.port : int(afmu::kDefaultHttpPort);
         m_peers->upsert(rec);
         m_incomingAuth->decide(r.id, true);
+        // 列表里同时标成「已配对」：否则用户点完允许，那台设备在列表里看起来毫无变化。
+        m_devices->upsert(DeviceInfo{rec.name.isEmpty() ? rec.lastHost : rec.name,
+                                     rec.os.isEmpty() ? QStringLiteral("unknown") : rec.os,
+                                     rec.lastHost, rec.lastPort, rec.fp});
         appendLog(T(QStringLiteral("已与 %1 配对，指纹 %2"))
                       .arg(r.name, afmu::Identity::group(r.peerFp)));
         notify(T(QStringLiteral("已与 %1 配对")).arg(r.name), false);

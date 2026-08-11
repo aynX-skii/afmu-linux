@@ -28,6 +28,8 @@ QVariant DeviceModel::data(const QModelIndex &index, int role) const
     case HostRole: return d.host;
     case PortRole: return d.port;
     case AddressRole: return QStringLiteral("%1:%2").arg(d.host).arg(d.port);
+    case FingerprintRole: return d.fingerprint;
+    case PairedRole: return !d.fingerprint.isEmpty();
     default: return {};
     }
 }
@@ -40,6 +42,8 @@ QHash<int, QByteArray> DeviceModel::roleNames() const
         {HostRole, "host"},
         {PortRole, "port"},
         {AddressRole, "address"},
+        {FingerprintRole, "fingerprint"},
+        {PairedRole, "paired"},
     };
 }
 
@@ -57,7 +61,11 @@ void DeviceModel::upsert(const DeviceInfo &d)
 {
     for (int i = 0; i < m_items.size(); ++i) {
         if (m_items[i].host == d.host && m_items[i].port == d.port) {
+            const QString keepFp = d.fingerprint.isEmpty() ? m_items[i].fingerprint : d.fingerprint;
             m_items[i] = d;
+            // 认出来过一次就不再退回「不认识」：丢一个 rid 应答（丢包、跨时间窗）
+            // 不代表这台设备不是它了，而界面上的「已配对」闪一下会很难看。
+            m_items[i].fingerprint = keepFp;
             emit dataChanged(index(i), index(i));
             return;
         }

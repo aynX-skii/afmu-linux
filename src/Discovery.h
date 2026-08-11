@@ -1,11 +1,18 @@
 #pragma once
 
 #include <QHostAddress>
+#include <QJsonObject>
 #include <QObject>
+#include <QPointer>
 #include <QSet>
 
 class QUdpSocket;
 class QTimer;
+class PeerStore;
+
+namespace afmu {
+class Identity;
+}
 
 // docs/PROTOCOL.md §1 —— UDP 8766 设备发现
 class Discovery : public QObject
@@ -27,6 +34,19 @@ public:
 
     // 应答内容
     void setAdvertisement(const QString &name, quint16 port, bool discoverable);
+
+    /**
+     * 打开发现协议的 v2 部分（PROTOCOL-v2-DRAFT.md §6）：本机身份 + 配对表。
+     *
+     * 给了之后，常态应答里多一个滚动 `rid`：陌生人只看到一串随机 hex，
+     * 而**手里有本机指纹的设备算得出同一个值**，于是认识的设备照样显示名字。
+     * 收到应答时反过来做同一件事，所以配过对的 PC 换了 IP 也能认出来
+     * （草案 §13 问题 3），不必重新配对。
+     *
+     * 两个都给齐才有意义：没有身份就算不出自己的 rid，没有配对表就没有
+     * 任何指纹可以拿来比对收到的 rid。
+     */
+    void setIdentity(const afmu::Identity *id, PeerStore *peers);
 
     /**
      * 配对模式（PROTOCOL.md §1.5）。
@@ -52,13 +72,22 @@ public:
     static QList<QHostAddress> broadcastAddresses();
 
 signals:
-    void deviceFound(const QString &name, const QString &os, const QString &host, int port);
+    /**
+     * `fingerprint` 非空 = 这台是配对表里的某一台，靠 `rid`（或配对模式下的 `fp`）认出来的。
+     * 空表示不认识 —— 那是绝大多数情况，也包括所有 v1 设备。
+     */
+    void deviceFound(const QString &name, const QString &os, const QString &host, int port,
+                     const QString &fingerprint);
     void probeFinished();
     void logMessage(const QString &msg);
 
 private:
     void readProbeReplies();
     void readRequests();
+    QString identify(const QJsonObject &reply, const QString &host, int port, QString *name,
+                     QString *os);
+    QString noteIdentified(const QString &fp, const QString &host, int port, QString *name,
+                           QString *os);
 
     QUdpSocket *m_probeSock = nullptr;
     QUdpSocket *m_responder = nullptr;
@@ -69,6 +98,9 @@ private:
     QString m_advName;
     quint16 m_advPort = 0;
     bool m_discoverable = true;
+
+    const afmu::Identity *m_identity = nullptr;
+    QPointer<PeerStore> m_peers;
 
     /** 配对模式的截止时刻（ms since epoch），0 = 没开。 */
     qint64 m_pairingUntil = 0;

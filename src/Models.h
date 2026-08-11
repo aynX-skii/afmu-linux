@@ -12,6 +12,11 @@ struct DeviceInfo
     QString os;
     QString host;
     int port = 0;
+    /**
+     * 非空 = 这台在配对表里，靠发现应答的滚动 `rid` 认出来的（草案 §6.1）。
+     * 界面拿它显示「已配对」，连接时也不用再猜该钉哪个指纹。
+     */
+    QString fingerprint;
 };
 
 class DeviceModel : public QAbstractListModel
@@ -25,6 +30,8 @@ public:
         HostRole,
         PortRole,
         AddressRole,
+        FingerprintRole,
+        PairedRole,
     };
     explicit DeviceModel(QObject *parent = nullptr);
 
