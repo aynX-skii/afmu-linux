@@ -34,6 +34,7 @@ set(AFMU_CPP
     src/JsonFile.h            src/JsonFile.cpp
     src/Config.h              src/Config.cpp
     src/Identity.h            src/Identity.cpp
+    src/Tls.h                 src/Tls.cpp
     src/PeerStore.h           src/PeerStore.cpp
     src/I18n.h                src/I18n.cpp
     src/Discovery.h           src/Discovery.cpp

@@ -128,6 +128,32 @@ QString Identity::group(const QString &base32)
     return out;
 }
 
+QByteArray Identity::fingerprintOf(const QByteArray &certDer)
+{
+    const unsigned char *p = reinterpret_cast<const unsigned char *>(certDer.constData());
+    CertPtr cert(d2i_X509(nullptr, &p, certDer.size()));
+    if (!cert)
+        return {};
+    return spkiFingerprint(cert.get());
+}
+
+QByteArray Identity::privateKeyPem() const
+{
+    // 文件里是「私钥 PEM + 证书 PEM」拼在一起。QSslKey 只该看到前半段：
+    // 把整个文件喂给它，解析成功与否取决于它的实现细节，不该赌。
+    const int begin = m_keyPem.indexOf("-----BEGIN ");
+    if (begin < 0)
+        return {};
+    const int keyMark = m_keyPem.indexOf("PRIVATE KEY-----", begin);
+    if (keyMark < 0)
+        return {};
+    const int end = m_keyPem.indexOf("-----END ", keyMark);
+    if (end < 0)
+        return {};
+    const int endLine = m_keyPem.indexOf('\n', end);
+    return m_keyPem.mid(begin, (endLine < 0 ? m_keyPem.size() : endLine + 1) - begin);
+}
+
 QString Identity::fingerprintBase32() const { return toBase32(m_fingerprint); }
 QString Identity::fingerprintDisplay() const { return group(fingerprintBase32()); }
 

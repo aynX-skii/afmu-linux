@@ -283,6 +283,80 @@ Item {
                 }
             }
 
+            // ------------------------------------------------------ 加密连接（v2）
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: cryptoCol.implicitHeight + 2 * Theme.pad
+                radius: Theme.radius
+                color: Theme.surface
+                border.width: 1
+                border.color: Theme.borderSoft
+
+                ColumnLayout {
+                    id: cryptoCol
+                    anchors.fill: parent
+                    anchors.margins: Theme.pad
+                    spacing: Theme.gapMd
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        SectionLabel { text: Tr.t("加密连接") }
+                        Item { Layout.fillWidth: true }
+                        StatBadge {
+                            label: App.tlsReady ? Tr.t("服务端已就绪") : Tr.t("不可用")
+                            tone: App.tlsReady ? Theme.success : Theme.textFaint
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        text: Tr.t("本机指纹 —— 配对时对端会显示同一串，两边一致才说明中间没有人。")
+                        font.pixelSize: Theme.fsSm
+                        color: Theme.textDim
+                        wrapMode: Text.WordWrap
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.gapMd
+                        // 全长显示，绝不截断：用户要拿它跟对端屏幕上的逐字比对，
+                        // 少几位就等于比对了一个更短的哈希。
+                        Text {
+                            Layout.fillWidth: true
+                            text: App.localFingerprint !== "" ? App.localFingerprint
+                                                              : Tr.t("（尚未生成）")
+                            font.family: "monospace"
+                            font.pixelSize: Theme.fsSm
+                            color: Theme.text
+                            wrapMode: Text.WrapAnywhere
+                        }
+                        IconButton {
+                            iconName: "copy"
+                            tip: Tr.t("复制指纹")
+                            enabled: App.localFingerprint !== ""
+                            onClicked: App.copyToClipboard(App.localFingerprint)
+                        }
+                    }
+
+                    AppSwitch {
+                        text: Tr.t("允许未加密的旧版连接")
+                        checked: App.config.allowLegacyPlaintext
+                        // 不重启服务：重启会掐断正在传的文件，而这个开关管的是**新**连接。
+                        // 改完立即生效（Config.changed → applyServerContext）。
+                        onToggled: App.config.allowLegacyPlaintext = checked
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: Tr.t("关掉之后，本机只接受加密连接：非 TLS 的连接会被直接断开，不回任何响应。")
+                              + "\n"
+                              + Tr.t("目前加密只做到了服务端一半，客户端还在做 —— 现在关掉等于谁也连不上，包括手机 App。")
+                        font.pixelSize: Theme.fsXs
+                        color: Theme.textFaint
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
             // ------------------------------------------------------ 已配对设备（v2）
             //
             // 这张表在 v2 里就是访问控制列表：里面有指纹的设备才握得上 TLS。

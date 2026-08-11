@@ -6,6 +6,7 @@
 #include "Discovery.h"
 #include "HttpServer.h"
 #include "Models.h"
+#include "Identity.h"
 #include "PeerClient.h"
 #include "PeerStore.h"
 #include "Protocol.h"
@@ -47,11 +48,24 @@ AppController::AppController(QObject *parent)
     if (!m_config->loadError().isEmpty())
         appendLog(m_config->loadError());
 
+    const QString configDir = QFileInfo(m_config->configFilePath()).absolutePath();
+
     // 配对表放在 config.json 旁边，跟着同一个 XDG 目录走。
-    m_peers->load(QDir(QFileInfo(m_config->configFilePath()).absolutePath())
-                      .filePath(QStringLiteral("peers.json")));
+    m_peers->load(QDir(configDir).filePath(QStringLiteral("peers.json")));
     if (!m_peers->loadError().isEmpty())
         appendLog(m_peers->loadError());
+
+    // 本机身份（草案 §3）。第一次跑会生成一对密钥；读不出来就报错而不是重新生成 ——
+    // 换密钥等于换设备，所有已配对关系一起作废，而症状只是「突然谁都连不上」。
+    m_identity = std::make_unique<afmu::Identity>();
+    if (m_identity->ensure(QDir(configDir).filePath(QStringLiteral("identity.pem")))) {
+        m_server->setIdentity(m_identity.get(), m_peers);
+        appendLog(m_server->tlsReady()
+                      ? T(QStringLiteral("本机指纹 %1")).arg(m_identity->fingerprintDisplay())
+                      : T(QStringLiteral("本机身份可用，但 TLS 没能就绪，只能走明文")));
+    } else {
+        appendLog(T(QStringLiteral("身份不可用：%1")).arg(m_identity->lastError()));
+    }
 
     m_transfers = new TransferModel(m_client, m_config, this);
     m_client->setToken(m_config->peerToken());
@@ -195,6 +209,13 @@ QObject *AppController::devicesObj() const { return m_devices; }
 QObject *AppController::filesObj() const { return m_files; }
 QObject *AppController::transfersObj() const { return m_transfers; }
 QObject *AppController::peersObj() const { return m_peers; }
+
+QString AppController::localFingerprint() const
+{
+    return m_identity && m_identity->isValid() ? m_identity->fingerprintDisplay() : QString();
+}
+
+bool AppController::tlsReady() const { return m_server->tlsReady(); }
 
 QString AppController::peerHost() const { return m_client->host(); }
 int AppController::peerPort() const { return m_client->port(); }
@@ -830,6 +851,7 @@ void AppController::applyServerContext()
     if (!ctx.roots.contains(ctx.inbox))
         ctx.roots.prepend(ctx.inbox);
     m_server->setContext(ctx);
+    m_server->setAllowLegacyPlaintext(m_config->allowLegacyPlaintext());
 
     m_discovery->setAdvertisement(m_config->deviceName(),
                                   m_server->isListening() ? m_server->actualPort()

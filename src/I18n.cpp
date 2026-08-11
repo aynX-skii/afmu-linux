@@ -158,6 +158,56 @@ const Entry kEnglish[] = {
     {"不要在不可信网络（公共 Wi-Fi、咖啡厅）上开启服务。",
      "Do not serve on untrusted networks (public Wi-Fi, cafés)."},
 
+    // -------------------------------------------------- 日志 · 加密（v2）
+    {"本机指纹 %1", "This device's fingerprint: %1"},
+    {"本机身份可用，但 TLS 没能就绪，只能走明文",
+     "Identity is usable but TLS did not come up; plaintext only."},
+    {"身份不可用：%1", "Identity unavailable: %1"},
+    {"这个 Qt 构建没有 TLS 支持，加密连接不可用",
+     "This Qt build has no TLS support; encrypted connections are unavailable."},
+    {"身份无法交给 TLS 使用，加密连接不可用",
+     "The identity could not be handed to TLS; encrypted connections are unavailable."},
+    {"%1 的加密连接没有出示证书，已断开",
+     "%1 opened an encrypted connection without presenting a certificate; dropped."},
+    {"%1 已通过加密连接接入（%2）", "%1 connected over an encrypted link (%2)"},
+    {"拒绝了未配对设备的加密连接，指纹 %1",
+     "Refused an encrypted connection from an unpaired device, fingerprint %1"},
+    {"%1 用明文连接，但已禁用明文，直接断开",
+     "%1 connected in plaintext while plaintext is disabled; dropped."},
+    {"握手告警（%1）：%2", "Handshake warning (%1): %2"},
+
+    // -------------------------------------------------- 设置页 · 加密与配对表（v2）
+    {"加密连接", "Encrypted connections"},
+    {"服务端已就绪", "Server ready"},
+    {"不可用", "Unavailable"},
+    {"本机指纹 —— 配对时对端会显示同一串，两边一致才说明中间没有人。",
+     "This device's fingerprint. The other device shows the same string while pairing; "
+     "matching them is what rules out a man in the middle."},
+    {"（尚未生成）", "(not generated yet)"},
+    {"复制指纹", "Copy fingerprint"},
+    {"允许未加密的旧版连接", "Allow unencrypted legacy connections"},
+    {"关掉之后，本机只接受加密连接：非 TLS 的连接会被直接断开，不回任何响应。",
+     "With this off, only encrypted connections are accepted: anything else is dropped "
+     "without a reply."},
+    {"目前加密只做到了服务端一半，客户端还在做 —— 现在关掉等于谁也连不上，包括手机 App。",
+     "Only the server half of encryption is done so far; the client side is still being "
+     "built — turning this off right now means nothing can connect, the phone app included."},
+    {"已配对设备", "Paired devices"},
+    {"台", "devices"},
+    {"还没有配对过的设备。加密连接（协议 v2）启用后，配对成功的设备会出现在这里。",
+     "No paired devices yet. Once encrypted connections (protocol v2) are on, devices you "
+     "pair with appear here."},
+    {"配对关系不会自动过期 —— 半年没用的设备下次还能直接连。要清理只能在这里手动解除。",
+     "Pairings never expire on their own — a device you have not used in months still "
+     "connects. Clearing one is manual, here."},
+    {"仅加密", "Encrypted only"},
+    {"配对于 ", "Paired "},
+    {"上次 ", "Last seen "},
+    {"解除配对", "Unpair"},
+    {"解除后这台设备将无法再连接本机，要用需重新配对。",
+     "This device will no longer be able to connect, and using it again means pairing from "
+     "scratch."},
+
     // ---------------------------------------------------------------- 设置页
     {"显示给对端的名字", "The name shown to the other device"},
     {"设备名", "Device name"},

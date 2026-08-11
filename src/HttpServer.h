@@ -3,10 +3,16 @@
 #include "AuthThrottle.h"
 
 #include <QPointer>
+#include <QSslConfiguration>
 #include <QStringList>
 #include <QTcpServer>
 
 class AuthRequests;
+class PeerStore;
+
+namespace afmu {
+class Identity;
+}
 
 // docs/PROTOCOL.md §2/§3/§4 —— 本机服务端（对端推/拉本机时用）
 struct ServerContext
@@ -34,6 +40,29 @@ public:
     void setAuthRequests(AuthRequests *auth) { m_auth = auth; }
     AuthRequests *authRequests() const { return m_auth; }
 
+    /**
+     * 打开 v2：本机身份 + 配对表（PROTOCOL-v2-DRAFT.md §5）。
+     *
+     * 两个都给齐才算就绪 —— 有身份没配对表的话，握手能成但没有东西可比对，
+     * 那等于 `VerifyNone`，是这一层最不该出现的状态。
+     */
+    void setIdentity(const afmu::Identity *id, PeerStore *peers);
+    bool tlsReady() const { return m_tlsReady; }
+    const QSslConfiguration &tlsConfiguration() const { return m_tlsConfig; }
+    PeerStore *peerStore() const { return m_peers; }
+
+    /**
+     * 允许非 TLS 的 v1 明文连接（草案 §8.1 第 2/4 条）。
+     *
+     * 关掉之后，首字节不是 `0x16` 的连接**直接断开，不回任何 HTTP 报文** ——
+     * 零信任模式下这个端口在效果上只听 TLS。
+     *
+     * 现在默认开着：v2 的握手才刚落地，客户端一侧还没接（§12 第 4–6 步），
+     * 关掉等于本机谁也连不上。按 §8.2 的路线，它在第 3 阶段才翻成默认关。
+     */
+    void setAllowLegacyPlaintext(bool on) { m_allowLegacy = on; }
+    bool allowLegacyPlaintext() const { return m_allowLegacy; }
+
     // 依次尝试 8765 / 8766 / 8767，全失败则绑定随机空闲端口
     bool start(quint16 preferred);
     void stop();
@@ -60,6 +89,10 @@ protected:
 private:
     ServerContext m_ctx;
     QPointer<AuthRequests> m_auth;
+    QPointer<PeerStore> m_peers;
+    QSslConfiguration m_tlsConfig;
+    bool m_tlsReady = false;
+    bool m_allowLegacy = true;
     AuthThrottle m_throttle;
     quint16 m_port = 0;
     qint64 m_transferId = 0;

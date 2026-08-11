@@ -8,6 +8,12 @@
 #include <QUrl>
 #include <QVariantList>
 
+#include <memory>
+
+namespace afmu {
+class Identity;
+}
+
 class QTimer;
 class I18n;
 class Discovery;
@@ -55,6 +61,11 @@ class AppController : public QObject
     Q_PROPERTY(QStringList localAddresses READ localAddresses NOTIFY serverChanged)
     Q_PROPERTY(QStringList serverLog READ serverLog NOTIFY serverLogChanged)
 
+    // 加密连接（PROTOCOL-v2-DRAFT.md §3/§5）。指纹是本机的身份，要给用户看、
+    // 让他拿去跟对端屏幕上的比 —— 所以是展示形式（每 5 个字符一组）的全长。
+    Q_PROPERTY(QString localFingerprint READ localFingerprint CONSTANT)
+    Q_PROPERTY(bool tlsReady READ tlsReady NOTIFY serverChanged)
+
     // 配对模式：常态下发现应答不含设备名，只有用户点了才短暂公开（PROTOCOL.md §1.5）
     Q_PROPERTY(bool pairingMode READ pairingMode NOTIFY pairingModeChanged)
     Q_PROPERTY(int pairingRemaining READ pairingRemaining NOTIFY pairingModeChanged)
@@ -93,7 +104,7 @@ public:
     QObject *transfersObj() const;
     QObject *peersObj() const;
 
-    /** 配对表本身，给 C++ 侧（将来的 TLS 钉扎）用。 */
+    /** 配对表本身，给 C++ 侧的 TLS 钉扎用。 */
     PeerStore *peers() const { return m_peers; }
 
     bool scanning() const { return m_scanning; }
@@ -118,6 +129,8 @@ public:
     int serverPort() const;
     QStringList localAddresses() const;
     QStringList serverLog() const { return m_log; }
+    QString localFingerprint() const;
+    bool tlsReady() const;
     bool pairingMode() const;
     int pairingRemaining() const;
 
@@ -216,6 +229,8 @@ private:
     TransferModel *m_transfers = nullptr;
     PeerClient *m_client = nullptr;
     PeerStore *m_peers = nullptr;
+    /** 本机长期身份。QObject 之外，所以用 unique_ptr 而不是父子关系托管。 */
+    std::unique_ptr<afmu::Identity> m_identity;
     HttpServer *m_server = nullptr;
     AuthRequests *m_incomingAuth = nullptr;
 

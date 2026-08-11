@@ -65,6 +65,10 @@ void Config::load()
     ensure(QStringLiteral("autoStartServer"), true);
     // 默认开着：没有 token 的设备靠它来敲门，关掉之后只剩手抄 token / 扫码两条路
     ensure(QStringLiteral("allowAuthRequests"), true);
+    // 默认开着，而草案 §8.1 写的是默认关 —— 那是 §8.2 第 3 阶段的事。
+    // 现在 v2 客户端还没做（§12 第 4–6 步），关掉等于本机谁也连不上，
+    // 包括手机上正在用的 v1 App。等两端的 v2 客户端都跑通了再翻默认值。
+    ensure(QStringLiteral("allowLegacyPlaintext"), true);
     ensure(QStringLiteral("discoverTimeoutMs"), 1500);
     ensure(QStringLiteral("lastHost"), QString());
     ensure(QStringLiteral("lastPort"), int(afmu::kDefaultHttpPort));
@@ -111,6 +115,7 @@ bool Config::discoverable() const { return m_json.value(QStringLiteral("discover
 bool Config::readOnly() const { return m_json.value(QStringLiteral("readOnly")).toBool(false); }
 bool Config::autoStartServer() const { return m_json.value(QStringLiteral("autoStartServer")).toBool(true); }
 bool Config::allowAuthRequests() const { return m_json.value(QStringLiteral("allowAuthRequests")).toBool(true); }
+bool Config::allowLegacyPlaintext() const { return m_json.value(QStringLiteral("allowLegacyPlaintext")).toBool(true); }
 int Config::discoverTimeoutMs() const { return m_json.value(QStringLiteral("discoverTimeoutMs")).toInt(1500); }
 QString Config::lastHost() const { return m_json.value(QStringLiteral("lastHost")).toString(); }
 int Config::lastPort() const { return m_json.value(QStringLiteral("lastPort")).toInt(afmu::kDefaultHttpPort); }
@@ -138,6 +143,7 @@ void Config::setDiscoverable(bool v) { setValue(QStringLiteral("discoverable"), 
 void Config::setReadOnly(bool v) { setValue(QStringLiteral("readOnly"), v); }
 void Config::setAutoStartServer(bool v) { setValue(QStringLiteral("autoStartServer"), v); }
 void Config::setAllowAuthRequests(bool v) { setValue(QStringLiteral("allowAuthRequests"), v); }
+void Config::setAllowLegacyPlaintext(bool v) { setValue(QStringLiteral("allowLegacyPlaintext"), v); }
 void Config::setDiscoverTimeoutMs(int v) { setValue(QStringLiteral("discoverTimeoutMs"), qBound(300, v, 10000)); }
 void Config::setLastHost(const QString &v) { setValue(QStringLiteral("lastHost"), v); }
 void Config::setLastPort(int v) { setValue(QStringLiteral("lastPort"), v); }

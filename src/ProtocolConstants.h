@@ -108,6 +108,12 @@ inline const char *const kFingerprintAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ2345678
 /** 展示时每几个字符空一格 */
 inline constexpr int kFingerprintGroupSize = 5;
 
+/** ALPN。两端不一致时握手会以 no_application_protocol 失败，而不是悄悄退回 v1 —— 这正是想要的（§5） */
+inline const char *const kTlsAlpn = "afmu/2";
+
+/** TLS record 的 handshake 类型 0x16。服务端靠首字节把 v2 和 v1 明文分流（§8.1 第 4 条） */
+inline constexpr int kTlsHelloFirstByte = 22;
+
 // ---- 下载券 -------------------------------------------------------------
 // PROTOCOL.md §2.5。浏览器 <a href> 带不了自定义头，用它顶替 ?token=。
 

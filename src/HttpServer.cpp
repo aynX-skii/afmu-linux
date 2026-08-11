@@ -2,8 +2,11 @@
 #include "I18n.h"
 
 #include "AuthRequests.h"
+#include "Identity.h"
 #include "PathSafety.h"
+#include "PeerStore.h"
 #include "Protocol.h"
+#include "Tls.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -14,6 +17,8 @@
 #include <QJsonObject>
 #include <QLocale>
 #include <QMimeDatabase>
+#include <QSslKey>
+#include <QSslSocket>
 #include <QTcpSocket>
 #include <QTimer>
 #include <QUrl>
@@ -336,13 +341,22 @@ public:
     HttpConnection(qintptr handle, HttpServer *server)
         : QObject(server)
         , m_server(server)
-        , m_sock(new QTcpSocket(this))
+        , m_sock(new QSslSocket(this))
     {
         if (!m_sock->setSocketDescriptor(handle)) {
             deleteLater();
             return;
         }
         m_sock->setSocketOption(QAbstractSocket::LowDelayOption, 1);
+
+        // v2 就绪时先看一眼首字节再决定这条连接是 TLS 还是 v1 明文（草案 §8.1 第 4 条）。
+        // 一个端口同时服务新旧客户端，不用占两个。
+        if (m_server->tlsReady()) {
+            m_phase = Phase::Sniff;
+            connect(m_sock, &QSslSocket::encrypted, this, &HttpConnection::onEncrypted);
+            connect(m_sock, &QSslSocket::sslErrors, this, &HttpConnection::onSslErrors);
+        }
+
         connect(m_sock, &QTcpSocket::readyRead, this, &HttpConnection::onReadyRead);
         connect(m_sock, &QTcpSocket::bytesWritten, this, &HttpConnection::onBytesWritten);
         connect(m_sock, &QTcpSocket::disconnected, this, &HttpConnection::onDisconnected);
@@ -380,9 +394,113 @@ private slots:
         deleteLater();
     }
 
+    /**
+     * 握手成功。这里是**唯一**做钉扎的地方，也是唯一能挡住陌生设备的地方 ——
+     * `QueryPeer` 只负责把证书要过来，可不可信从来不归 TLS 栈判断。
+     */
+    void onEncrypted()
+    {
+        m_tls = true;
+        m_idle->start();
+
+        const QString fp = afmu::peerFingerprint(m_sock->peerCertificate());
+        if (fp.isEmpty()) {
+            // QueryPeer 下客户端不交证书握手照样成功。判空是挡住匿名连接的唯一一道，
+            // 漏掉它等于把 mTLS 写成了单向 TLS。
+            emit m_server->logMessage(
+                T(QStringLiteral("%1 的加密连接没有出示证书，已断开")).arg(peerHost()));
+            m_sock->abort();
+            deleteLater();
+            return;
+        }
+
+        m_peerFp = fp;
+        PeerStore *peers = m_server->peerStore();
+        m_peerPaired = peers && peers->isPaired(fp);
+        m_phase = Phase::Head;
+
+        if (m_peerPaired) {
+            // 一次成功的 v2 连接就是「这个对端会说 v2」的证据，从此不再允许它退回明文
+            // （草案 §8.2 第 2 阶段）。这个标志只升不降，降只能由用户解除配对。
+            peers->setPinned(fp, true);
+            emit m_server->logMessage(T(QStringLiteral("%1 已通过加密连接接入（%2）"))
+                                          .arg(peerHost(), peers->find(fp).name));
+        } else {
+            // 不认识就断，别让它进到 HTTP 层。
+            //
+            // 草案 §4.2.4 要求配对握手 /api/pair-v2 跑在 TLS 之内、且此时双方都还没钉扎，
+            // 所以那个接口做出来之后这里要改成「放进来但只许访问它」。
+            // 在它存在之前放行等于开一个没有任何用处的口子，所以现在一律断开。
+            emit m_server->logMessage(
+                T(QStringLiteral("拒绝了未配对设备的加密连接，指纹 %1"))
+                    .arg(afmu::Identity::group(fp)));
+            m_sock->abort();
+            deleteLater();
+            return;
+        }
+
+        // 握手期间对端可能已经把请求一起发过来了，此时不会再有新的 readyRead
+        if (m_sock->bytesAvailable() > 0)
+            onReadyRead();
+    }
+
+    /**
+     * 自签证书必然触发校验错误，这是设计的一部分：链校验被关掉了，可信与否由
+     * `onEncrypted` 里比对指纹决定。
+     *
+     * `QueryPeer` 下这些错误不会中断握手，所以这里**不调用** `ignoreSslErrors()` ——
+     * 调了反而会把「我们检查过了」这件事写成假的。留这个槽是为了两件事：
+     * 把非预期的错误打出来，以及让后来的人看到这里是有意为之，别顺手改成忽略全部。
+     */
+    void onSslErrors(const QList<QSslError> &errors)
+    {
+        for (const QSslError &e : errors) {
+            switch (e.error()) {
+            case QSslError::SelfSignedCertificate:
+            case QSslError::SelfSignedCertificateInChain:
+            case QSslError::HostNameMismatch:
+            case QSslError::CertificateUntrusted:
+            case QSslError::UnableToGetLocalIssuerCertificate:
+            case QSslError::UnableToVerifyFirstCertificate:
+                break; // 意料之中，钉扎不看这些
+            default:
+                emit m_server->logMessage(
+                    T(QStringLiteral("握手告警（%1）：%2")).arg(peerHost(), e.errorString()));
+                break;
+            }
+        }
+    }
+
     void onReadyRead()
     {
         m_idle->start();
+
+        // 首字节分流（草案 §8.1 第 4 条）。注意用 peek —— 这个字节属于对端的
+        // ClientHello，读掉的话 TLS 引擎就看不到完整的握手了。
+        if (m_phase == Phase::Sniff) {
+            char first = 0;
+            if (m_sock->peek(&first, 1) < 1)
+                return;
+            if (quint8(first) == afmu::kTlsHelloFirstByte) {
+                m_phase = Phase::Handshake;
+                m_sock->setSslConfiguration(m_server->tlsConfiguration());
+                m_sock->startServerEncryption();
+                return;
+            }
+            if (!m_server->allowLegacyPlaintext()) {
+                // 零信任模式下这个端口在效果上只听 TLS：不回 400，不回任何 HTTP 报文。
+                // 回什么都等于告诉扫端口的人这里有个 HTTP 服务。
+                emit m_server->logMessage(
+                    T(QStringLiteral("%1 用明文连接，但已禁用明文，直接断开")).arg(peerHost()));
+                m_sock->abort();
+                deleteLater();
+                return;
+            }
+            m_phase = Phase::Head;
+        }
+        if (m_phase == Phase::Handshake)
+            return; // 握手的字节归 QSslSocket，轮不到这里
+
         for (;;) {
             if (m_phase == Phase::Head) {
                 m_buf += m_sock->readAll();
@@ -422,7 +540,9 @@ private slots:
     }
 
 private:
-    enum class Phase { Head, Body, Sending, Closed };
+    // Sniff / Handshake 只在 v2 就绪时出现：先看首字节决定这条连接是 TLS 还是
+    // v1 明文，是 TLS 就把字节全交给 QSslSocket 直到 encrypted() 为止。
+    enum class Phase { Sniff, Handshake, Head, Body, Sending, Closed };
 
     // ---------------------------------------------------------- 请求解析
 
@@ -588,8 +708,13 @@ private:
             return;
         }
         // 下载额外认券：它是唯一会被浏览器直接导航到的接口，那里挂不上头（§2.5）
-        const bool ok = m_path == QLatin1String("/api/download") ? authorizedForDownload()
-                                                                 : authorized();
+        //
+        // v2 连接跳过这一整套：**握手成功 + 指纹在配对表里 = 认证已经完成**
+        // （草案 §5）。对端持有的是钉扎过的私钥，比"每个请求带个长期共享密钥"强一个
+        // 量级，再要一次 token 只是把 v1 的弱点原样搬过来。
+        const bool ok = (m_tls && m_peerPaired)
+            ? true
+            : (m_path == QLatin1String("/api/download") ? authorizedForDownload() : authorized());
         if (!ok) {
             const int wait = m_server->throttle().noteFailure(peer, now);
             if (wait > 0) {
@@ -1441,10 +1566,17 @@ private:
     }
 
     HttpServer *m_server = nullptr;
-    QTcpSocket *m_sock = nullptr;
+    QSslSocket *m_sock = nullptr;
     QTimer *m_idle = nullptr;
 
     Phase m_phase = Phase::Head;
+
+    /** 这条连接是不是 TLS。v1 明文连接一直是 false。 */
+    bool m_tls = false;
+    /** 对端的 SPKI 指纹，base32。只在 m_tls 为真时有值。 */
+    QString m_peerFp;
+    /** 指纹在配对表里。**握手成功 + 已配对 = 认证完成**，不再需要 token。 */
+    bool m_peerPaired = false;
     QByteArray m_buf;
 
     QByteArray m_method;
@@ -1488,6 +1620,30 @@ HttpServer::HttpServer(QObject *parent)
 void HttpServer::setContext(const ServerContext &ctx)
 {
     m_ctx = ctx;
+}
+
+void HttpServer::setIdentity(const afmu::Identity *id, PeerStore *peers)
+{
+    m_peers = peers;
+    m_tlsReady = false;
+    m_tlsConfig = QSslConfiguration();
+
+    if (!id || !id->isValid() || !peers)
+        return;
+    if (!QSslSocket::supportsSsl()) {
+        emit logMessage(T(QStringLiteral("这个 Qt 构建没有 TLS 支持，加密连接不可用")));
+        return;
+    }
+
+    QSslConfiguration cfg = afmu::serverTlsConfiguration(*id);
+    // 私钥没被 Qt 认出来的话，握手会在运行时才失败，而且报的是含糊的
+    // 「No private key」——在这里当场发现要好得多。
+    if (cfg.privateKey().isNull() || cfg.localCertificate().isNull()) {
+        emit logMessage(T(QStringLiteral("身份无法交给 TLS 使用，加密连接不可用")));
+        return;
+    }
+    m_tlsConfig = cfg;
+    m_tlsReady = true;
 }
 
 bool HttpServer::start(quint16 preferred)

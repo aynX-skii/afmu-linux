@@ -19,6 +19,7 @@ class Config : public QObject
     Q_PROPERTY(bool readOnly READ readOnly WRITE setReadOnly NOTIFY changed)
     Q_PROPERTY(bool autoStartServer READ autoStartServer WRITE setAutoStartServer NOTIFY changed)
     Q_PROPERTY(bool allowAuthRequests READ allowAuthRequests WRITE setAllowAuthRequests NOTIFY changed)
+    Q_PROPERTY(bool allowLegacyPlaintext READ allowLegacyPlaintext WRITE setAllowLegacyPlaintext NOTIFY changed)
     Q_PROPERTY(int discoverTimeoutMs READ discoverTimeoutMs WRITE setDiscoverTimeoutMs NOTIFY changed)
     Q_PROPERTY(QString lastHost READ lastHost WRITE setLastHost NOTIFY changed)
     Q_PROPERTY(int lastPort READ lastPort WRITE setLastPort NOTIFY changed)
@@ -38,6 +39,8 @@ public:
     bool readOnly() const;
     bool autoStartServer() const;
     bool allowAuthRequests() const;
+    /** 允许未加密的 v1 连接（PROTOCOL-v2-DRAFT.md §8.1）。见 setter 处的说明。 */
+    bool allowLegacyPlaintext() const;
     int discoverTimeoutMs() const;
     QString lastHost() const;
     int lastPort() const;
@@ -54,6 +57,7 @@ public:
     void setReadOnly(bool v);
     void setAutoStartServer(bool v);
     void setAllowAuthRequests(bool v);
+    void setAllowLegacyPlaintext(bool v);
     void setDiscoverTimeoutMs(int v);
     void setLastHost(const QString &v);
     void setLastPort(int v);

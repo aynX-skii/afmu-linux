@@ -58,8 +58,21 @@ public:
     /** 证书的 DER，握手时要用。 */
     QByteArray certificateDer() const { return m_certDer; }
 
-    /** 私钥的 PEM，交给 QSslKey 用。**不要写进日志。** */
-    QByteArray privateKeyPem() const { return m_keyPem; }
+    /**
+     * 只含私钥的那一段 PEM（盘上的文件是私钥 + 证书拼在一起）。
+     * 交给 QSslKey 用。**不要写进日志。**
+     */
+    QByteArray privateKeyPem() const;
+
+    /**
+     * 任意一张证书的 SPKI 指纹，用来算**对端**的。
+     *
+     * 和本机指纹走的是同一段代码，这一点很重要：钉扎比对的两边只要有一边
+     * 换了算法（比如改用 Qt 的 `QSslKey::toDer()`），就会变成一个自洽但永远
+     * 匹配不上的值，而现象是「证书明明对却一直不匹配」。
+     * 本机那一份已经和 openssl 交叉验证过（§12 第 1 步），复用它就等于免验。
+     */
+    static QByteArray fingerprintOf(const QByteArray &certDer);
 
     /** 把任意 32 字节指纹格式化成展示形式，配对表里的对端指纹也用它。 */
     static QString toBase32(const QByteArray &raw);
