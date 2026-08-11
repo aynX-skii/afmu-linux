@@ -59,6 +59,10 @@ const Entry kEnglish[] = {
     {"例如 a7k2m9x4qp", "e.g. a7k2m9x4qp"},
     {"明文 HTTP，token 只防误连，不要在公共 Wi-Fi 上使用",
      "Plain HTTP — the token only prevents mistaken connections. Not for public Wi-Fi."},
+    {"未加密", "Unencrypted"},
+    {"流量是明文 HTTP。同一网络里的任何人都能看到文件名和文件内容。请只在信任的网络里使用。",
+     "Traffic is plain HTTP. Anyone on this network can read file names and contents. "
+     "Use it on networks you trust."},
     {"手动连接", "Manual connect"},
     {"192.168.1.30:8765  或  127.0.0.1:18765（adb forward）",
      "192.168.1.30:8765  or  127.0.0.1:18765 (adb forward)"},

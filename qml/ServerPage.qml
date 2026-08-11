@@ -46,6 +46,53 @@ Item {
             }
         }
 
+        // ------------------------------------------------- 未加密提示（常驻）
+        // 服务开着就一直显示。v1 是明文 HTTP —— 这件事只写在文档和「设置」页里的话，
+        // 真正在决定「要不要开着」的那个人根本看不到。
+        // 刻意不做成可关闭的横幅或一次性弹窗：服务没停这件事就没变，
+        // 而三周前点掉的一个提示不算今天的知情同意。
+        Rectangle {
+            Layout.fillWidth: true
+            visible: App.serverRunning
+            Layout.preferredHeight: warnRow.implicitHeight + Theme.pad
+            radius: Theme.radius
+            color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.12)
+            border.width: 1
+            border.color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.35)
+
+            RowLayout {
+                id: warnRow
+                anchors.fill: parent
+                anchors.margins: Theme.pad / 2
+                spacing: Theme.pad / 2
+
+                AppIcon {
+                    name: "alert"
+                    color: Theme.warning
+                    Layout.alignment: Qt.AlignTop
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: 2
+
+                    Text {
+                        text: Tr.t("未加密")
+                        font.pixelSize: Theme.fsSm
+                        font.bold: true
+                        color: Theme.warning
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: Tr.t("流量是明文 HTTP。同一网络里的任何人都能看到文件名和文件内容。请只在信任的网络里使用。")
+                        font.pixelSize: Theme.fsSm
+                        color: Theme.textFaint
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+        }
+
         // ---------------------------------------------------------- 连接信息
         Rectangle {
             Layout.fillWidth: true
