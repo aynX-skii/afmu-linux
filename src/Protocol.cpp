@@ -1,9 +1,57 @@
 #include "Protocol.h"
 
+#include <QHostAddress>
 #include <QRandomGenerator>
+#include <QUrl>
 #include <QUrlQuery>
 
 namespace afmu {
+
+namespace {
+
+/** 从 Host / Origin 里取出主机名，剥掉端口和 IPv6 的方括号。 */
+QString hostNameOf(const QString &raw)
+{
+    QString s = raw.trimmed();
+    if (s.isEmpty())
+        return QString();
+
+    if (s.startsWith(QLatin1Char('['))) {
+        // [::1]:8765 —— 方括号里整段都是地址，冒号不是端口分隔符
+        const int close = s.indexOf(QLatin1Char(']'));
+        return close > 0 ? s.mid(1, close - 1) : QString();
+    }
+    // 裸 IPv6（没加方括号，不合规但见得到）会有多个冒号，此时没有端口可言
+    if (s.count(QLatin1Char(':')) > 1)
+        return s;
+    const int colon = s.indexOf(QLatin1Char(':'));
+    return colon >= 0 ? s.left(colon) : s;
+}
+
+/**
+ * 严格的点分四段判定。**不能用 QHostAddress::setAddress** —— 它沿用了
+ * inet_aton 的宽松规矩，"0x7f.0.0.1"、"1.2.3"、"2130706433" 全都接受，
+ * 而宽松的 IP 解析器正是 DNS rebinding 想要的（PROTOCOL.md §2.4）。
+ */
+bool isStrictIpv4(const QString &s)
+{
+    const QStringList parts = s.split(QLatin1Char('.'));
+    if (parts.size() != 4)
+        return false;
+    for (const QString &p : parts) {
+        if (p.isEmpty() || p.size() > 3)
+            return false;
+        for (const QChar c : p) {
+            if (c < u'0' || c > u'9')
+                return false;
+        }
+        if (p.toInt() > 255)
+            return false;
+    }
+    return true;
+}
+
+} // namespace
 
 bool tokenEquals(const QByteArray &a, const QByteArray &b)
 {
@@ -19,6 +67,56 @@ bool tokenEquals(const QByteArray &a, const QByteArray &b)
         diff |= static_cast<quint32>(ca ^ cb);
     }
     return diff == 0;
+}
+
+bool isLocalHostHeader(const QString &hostHeader)
+{
+    const QString name = hostNameOf(hostHeader);
+    if (name.isEmpty())
+        return false; // HTTP/1.1 要求必须有 Host；没有就当不合规
+
+    if (name.compare(QLatin1String("localhost"), Qt::CaseInsensitive) == 0)
+        return true;
+    if (name.endsWith(QLatin1String(".local"), Qt::CaseInsensitive))
+        return true;
+
+    // IPv6 交给 Qt：那套语法没有 IPv4 那种十进制/十六进制的宽松歧义
+    if (name.contains(QLatin1Char(':'))) {
+        QHostAddress addr;
+        return addr.setAddress(name) && addr.protocol() == QAbstractSocket::IPv6Protocol;
+    }
+    return isStrictIpv4(name);
+}
+
+bool originMatchesHost(const QString &origin, const QString &hostHeader)
+{
+    const QString o = origin.trimmed();
+    if (o.isEmpty())
+        return true; // 原生客户端不发 Origin
+    // 有些浏览器在隐私上下文里发字面量 "null"，那不是本机，直接拒
+    if (o.compare(QLatin1String("null"), Qt::CaseInsensitive) == 0)
+        return false;
+
+    const QUrl u(o);
+    if (!u.isValid() || u.host().isEmpty())
+        return false;
+
+    // 主机名和端口都要对上。**端口不能放过** —— 只比主机名的话，
+    // 同一台设备上任何别的 HTTP 服务（:9999 上的某个页面）都能驱动本机的 API。
+    if (u.host().compare(hostNameOf(hostHeader), Qt::CaseInsensitive) != 0)
+        return false;
+
+    // 两边的端口都可能是隐含的：Origin 省略端口表示协议默认端口，
+    // Host 省略端口表示 80（v1 是明文 http）。补齐之后再比。
+    const int originPort =
+        u.port() > 0 ? u.port() : (u.scheme().compare(QLatin1String("https"), Qt::CaseInsensitive) == 0 ? 443 : 80);
+
+    const QString hostName = hostNameOf(hostHeader);
+    const QString rest = hostHeader.trimmed().mid(
+        hostHeader.trimmed().startsWith(QLatin1Char('[')) ? hostName.size() + 2 : hostName.size());
+    const int hostPort = rest.startsWith(QLatin1Char(':')) ? rest.mid(1).toInt() : 80;
+
+    return originPort == hostPort;
 }
 
 QString makeToken()

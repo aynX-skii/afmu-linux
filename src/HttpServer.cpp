@@ -521,6 +521,23 @@ private:
     {
         const ServerContext &ctx = m_server->context();
 
+        // DNS rebinding / 跨站请求防护（PROTOCOL.md §2.4）。排在所有路由之前 ——
+        // 包括 GET /，因为浏览器界面正是这类攻击的入口。
+        const QString hostHeader = QString::fromLatin1(m_headers.value("host"));
+        if (!afmu::isLocalHostHeader(hostHeader)) {
+            emit m_server->logMessage(
+                T(QStringLiteral("拒绝了 Host 为「%1」的请求（疑似 DNS rebinding）")).arg(hostHeader));
+            sendJson(403, errObj(QStringLiteral("host not allowed")));
+            return;
+        }
+        if (!afmu::originMatchesHost(QString::fromLatin1(m_headers.value("origin")), hostHeader)) {
+            emit m_server->logMessage(
+                T(QStringLiteral("拒绝了来自「%1」的跨站请求"))
+                    .arg(QString::fromLatin1(m_headers.value("origin"))));
+            sendJson(403, errObj(QStringLiteral("cross-origin request refused")));
+            return;
+        }
+
         if (m_path == QLatin1String("/") || m_path.isEmpty()) {
             sendText(200,
                      T(QStringLiteral("AFMU Linux 服务端已就绪。")) + QLatin1Char('\n')
