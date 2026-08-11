@@ -993,13 +993,17 @@ private:
             sendJson(403, errObj(QStringLiteral("read-only mode")));
             return;
         }
-        const QString parent = afmu::resolveUnderRoots(param(QStringLiteral("path")), ctx.roots);
+        // 参数缺失是客户端错误（400），路径解析不出来才是 404。
+        // 两者顺序不能颠倒：缺 path 时 resolveUnderRoots("") 也返回空，
+        // 先解析就会把「没传参数」误报成「目录不存在」，和 Android 端不一致。
+        const QString rawPath = param(QStringLiteral("path"));
         const QString rawName = param(QStringLiteral("name"));
-        if (rawName.trimmed().isEmpty()) {
+        if (rawPath.trimmed().isEmpty() || rawName.trimmed().isEmpty()) {
             // name 是必填的；空值以前会静默建出一个 "unnamed" 目录
             sendJson(400, errObj(QStringLiteral("need path and name")));
             return;
         }
+        const QString parent = afmu::resolveUnderRoots(rawPath, ctx.roots);
         const QString name = afmu::sanitizeFileName(rawName);
         if (parent.isEmpty() || !QFileInfo(parent).isDir()) {
             sendJson(404, errObj(QStringLiteral("no such directory")));
