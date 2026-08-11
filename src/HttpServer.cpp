@@ -610,8 +610,16 @@ private:
                 auth->create(param(QStringLiteral("name")), param(QStringLiteral("os")), peerHost(),
                              port > 0 && port <= 65535 ? port : 0, param(QStringLiteral("code")));
             if (r.isNull()) {
-                sendJson(429, errObj(QStringLiteral(
-                                  "another request is pending, or this address was refused recently")));
+                // 冷却导致的才有 Retry-After；「已有一个请求在等用户点」是另一回事，
+                // 那个要等多久取决于用户，报不出准确秒数就不要瞎报
+                const int wait = auth->retryAfterSec(peerHost());
+                QList<QPair<QByteArray, QByteArray>> extra;
+                if (wait > 0)
+                    extra.append({"Retry-After", QByteArray::number(wait)});
+                sendJson(429,
+                         errObj(QStringLiteral(
+                             "another request is pending, or this address was refused recently")),
+                         extra);
                 return;
             }
             emit m_server->logMessage(

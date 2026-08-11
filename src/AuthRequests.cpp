@@ -11,7 +11,35 @@ namespace {
 constexpr qint64 kTimeoutMs = qint64(afmu::kAuthTimeoutSec) * 1000;
 // 请求方一秒轮询一次；结果多留一会儿，最后一刻做的决定也能被取走
 constexpr qint64 kResultRetentionMs = kTimeoutMs + 30 * 1000;
+
+// 单地址被拒后的冷却，按拒绝次数翻倍：60s → 2min → 4min → … 封顶 30 分钟。
+// 固定 60 秒挡不住有耐心的人：拒绝、等一分钟、再来，可以一直弹下去。
 constexpr qint64 kDenyCooldownMs = 60 * 1000;
+constexpr qint64 kDenyCooldownMaxMs = 30 * 60 * 1000;
+
+// 超时按软拒绝算：对方确实没做错什么，但「发了就挂机等超时」同样能一分钟弹一次，
+// 所以给一个不升级的基础冷却。
+constexpr qint64 kTimeoutCooldownMs = 60 * 1000;
+
+// 全局冷却 —— A3 的重点。上面两条都是按地址算的，而局域网里换个地址是零成本的事，
+// 于是单靠按地址冷却挡不住刷屏。这一条不看是谁：只要连续被拒/超时，
+// **所有**地址都要等，10s → 20s → 40s → … 封顶 5 分钟。
+// 用户点一次「允许」就清零，所以正常使用完全感觉不到。
+constexpr qint64 kGlobalCooldownMs = 10 * 1000;
+constexpr qint64 kGlobalCooldownMaxMs = 5 * 60 * 1000;
+
+// 这么久没有新的拒绝就把计数忘掉，别让一次误操作留一整天
+constexpr qint64 kRefusalForgetMs = 30 * 60 * 1000;
+
+// n 次拒绝对应的冷却：base * 2^(n-1)，封顶 cap
+qint64 backoffMs(int refusals, qint64 base, qint64 cap)
+{
+    if (refusals <= 1)
+        return base;
+    if (refusals >= 30)
+        return cap;
+    return qMin(base << (refusals - 1), cap);
+}
 
 // 这是唯一免鉴权的接口，局域网里谁都能调，而传进来的文本直接进弹窗和日志。
 // 去掉控制字符并截断，免得有人用一个精心构造的设备名把按钮顶出对话框。
@@ -78,8 +106,11 @@ AuthRequests::Request AuthRequests::create(const QString &name, const QString &o
     sweep();
     if (!m_pending.isNull())
         return {}; // 一次只受理一个
-    if (m_blocked.value(host, 0) > QDateTime::currentMSecsSinceEpoch())
-        return {}; // 刚被拒过，冷却中
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_globalUntil > now)
+        return {}; // 刚有人被拒，所有地址一起等（挡换 IP 刷屏）
+    if (m_blocked.value(host, 0) > now)
+        return {}; // 这个地址刚被拒过，冷却中
 
     Request r;
     r.id = newId();
@@ -90,7 +121,7 @@ AuthRequests::Request AuthRequests::create(const QString &name, const QString &o
     r.os = displayText(os, 16);
     r.host = host;
     r.port = port;
-    r.createdAt = QDateTime::currentMSecsSinceEpoch();
+    r.createdAt = now;
     r.status = Status::Pending;
 
     m_pending = r;
@@ -124,10 +155,44 @@ void AuthRequests::decide(const QString &id, bool granted)
     Request settled = m_pending;
     settled.status = granted ? Status::Granted : Status::Denied;
     m_decided.insert(id, settled);
-    if (!granted)
-        m_blocked.insert(settled.host, QDateTime::currentMSecsSinceEpoch() + kDenyCooldownMs);
+    if (granted) {
+        // 用户点了「允许」，说明这一串请求是正常使用，不是骚扰：把账全清了。
+        // 没有这一步，配对成功之后紧接着的第二次配对会被自己刚才的冷却挡住。
+        m_denials.remove(settled.host);
+        m_blocked.remove(settled.host);
+        m_consecutiveRefusals = 0;
+        m_globalUntil = 0;
+    } else {
+        noteRefusal(settled.host, /*escalate=*/true);
+    }
     m_pending = {};
     emit pendingChanged();
+}
+
+void AuthRequests::noteRefusal(const QString &host, bool escalate)
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+
+    if (escalate) {
+        const int n = (m_denials[host] += 1);
+        m_blocked.insert(host, now + backoffMs(n, kDenyCooldownMs, kDenyCooldownMaxMs));
+    } else {
+        // 超时不升级计数，但仍要冷却：挂机等超时同样能一分钟弹一次
+        m_blocked.insert(host, now + kTimeoutCooldownMs);
+    }
+
+    m_consecutiveRefusals += 1;
+    m_lastRefusalAt = now;
+    m_globalUntil = now + backoffMs(m_consecutiveRefusals, kGlobalCooldownMs, kGlobalCooldownMaxMs);
+}
+
+int AuthRequests::retryAfterSec(const QString &host) const
+{
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    const qint64 until = qMax(m_globalUntil, m_blocked.value(host, 0));
+    const qint64 left = until - now;
+    // 向上取整：还剩 200ms 也得报 1 秒，报 0 等于说「现在就能再来」
+    return left <= 0 ? 0 : int((left + 999) / 1000);
 }
 
 void AuthRequests::clear()
@@ -136,6 +201,10 @@ void AuthRequests::clear()
     m_pending = {};
     m_decided.clear();
     m_blocked.clear();
+    m_denials.clear();
+    m_globalUntil = 0;
+    m_consecutiveRefusals = 0;
+    m_lastRefusalAt = 0;
     if (had)
         emit pendingChanged();
 }
@@ -145,14 +214,23 @@ void AuthRequests::sweep()
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
 
     if (!m_pending.isNull() && m_pending.expired(now)) {
-        // 超时按拒绝算，但不进冷却：对方没做错什么，是用户没来得及看
+        // 超时按软拒绝算：对方确实没做错什么（是用户没来得及看），所以不升级计数，
+        // 但仍然要冷却 —— 否则「发一个然后挂机等超时」照样能一分钟弹一次。
+        const QString host = m_pending.host;
         m_pending = {};
+        noteRefusal(host, /*escalate=*/false);
         emit pendingChanged();
     }
     for (auto it = m_decided.begin(); it != m_decided.end();)
         it = (now - it->createdAt > kResultRetentionMs) ? m_decided.erase(it) : ++it;
     for (auto it = m_blocked.begin(); it != m_blocked.end();)
         it = (it.value() < now) ? m_blocked.erase(it) : ++it;
+
+    // 安静够久就把升级计数忘掉，别让一次误操作留一整天
+    if (m_consecutiveRefusals > 0 && now - m_lastRefusalAt > kRefusalForgetMs) {
+        m_consecutiveRefusals = 0;
+        m_denials.clear();
+    }
 }
 
 QString AuthRequests::newId()

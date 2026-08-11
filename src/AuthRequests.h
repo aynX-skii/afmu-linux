@@ -52,9 +52,15 @@ public:
     /** 关掉时连带清空待决请求：开关关了还留着一个弹窗没有意义。 */
     void setEnabled(bool v);
 
-    /** 登记一个请求。已有请求在等 / 该地址在冷却 / 开关关着 → 返回空的 Request。 */
+    /** 登记一个请求。已有请求在等 / 该地址在冷却 / 全局冷却中 / 开关关着 → 返回空的 Request。 */
     Request create(const QString &name, const QString &os, const QString &host, int port,
                    const QString &code);
+
+    /**
+     * create() 返回空之后问「还要等几秒」，给 429 的 Retry-After 用。
+     * 0 表示不是冷却导致的（开关关着，或已有一个待决请求在等用户）。
+     */
+    int retryAfterSec(const QString &host) const;
 
     /** 按 id 查结果。只有请求方知道 id。查不到 → 空的 Request（对应 404）。 */
     Request lookup(const QString &id);
@@ -80,8 +86,19 @@ private:
     void sweep();
     static QString newId();
 
+    /** 一次拒绝/超时之后记账：该地址进冷却，全局也进冷却（PROTOCOL.md §3.8）。 */
+    void noteRefusal(const QString &host, bool escalate);
+
     bool m_enabled = true;
     Request m_pending;
     QHash<QString, Request> m_decided;
     QHash<QString, qint64> m_blocked;
+
+    /** 每个地址被拒过几次，决定它的冷却翻几倍。 */
+    QHash<QString, int> m_denials;
+
+    // 全局冷却：按地址的那套挡不住换 IP，这一条不看是谁
+    qint64 m_globalUntil = 0;
+    int m_consecutiveRefusals = 0;
+    qint64 m_lastRefusalAt = 0;
 };
