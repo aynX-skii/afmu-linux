@@ -66,6 +66,18 @@ AppController::AppController(QObject *parent)
     });
     connect(m_discovery, &Discovery::logMessage, this, &AppController::appendLog);
 
+    // 配对模式：界面上有个倒计时，所以开着的时候每秒通知一次
+    m_pairingTick = new QTimer(this);
+    m_pairingTick->setInterval(1000);
+    connect(m_pairingTick, &QTimer::timeout, this, &AppController::pairingModeChanged);
+    connect(m_discovery, &Discovery::pairingModeChanged, this, [this] {
+        if (m_discovery->pairingMode())
+            m_pairingTick->start();
+        else
+            m_pairingTick->stop();
+        emit pairingModeChanged();
+    });
+
     connect(m_config, &Config::changed, this, [this] {
         m_client->setToken(m_config->peerToken());
         m_incomingAuth->setEnabled(m_config->allowAuthRequests());
@@ -812,6 +824,12 @@ void AppController::applyServerContext()
 
 bool AppController::serverRunning() const { return m_server->isListening(); }
 int AppController::serverPort() const { return m_server->actualPort(); }
+
+bool AppController::pairingMode() const { return m_discovery->pairingMode(); }
+int AppController::pairingRemaining() const { return m_discovery->pairingSecondsLeft(); }
+
+void AppController::startPairingMode() { m_discovery->startPairingMode(); }
+void AppController::stopPairingMode() { m_discovery->stopPairingMode(); }
 
 QStringList AppController::localAddresses() const
 {

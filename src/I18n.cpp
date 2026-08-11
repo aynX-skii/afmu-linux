@@ -60,6 +60,9 @@ const Entry kEnglish[] = {
     {"明文 HTTP，token 只防误连，不要在公共 Wi-Fi 上使用",
      "Plain HTTP — the token only prevents mistaken connections. Not for public Wi-Fi."},
     {"未加密", "Unencrypted"},
+    {"允许被发现", "Make discoverable"},
+    {"可被发现 · ", "Discoverable · "},
+    {"允许被发现，%1 秒后自动恢复", "Discoverable — back to normal in %1s"},
     {"流量是明文 HTTP。同一网络里的任何人都能看到文件名和文件内容。请只在信任的网络里使用。",
      "Traffic is plain HTTP. Anyone on this network can read file names and contents. "
      "Use it on networks you trust."},

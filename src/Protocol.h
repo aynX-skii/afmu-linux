@@ -23,6 +23,9 @@ inline const char *const kPairUriPrefix = "afmu://pair?";
 // 一端还在轮询、另一端已经把请求丢掉的窗口
 inline constexpr int kAuthTimeoutSec = 60;
 
+// 配对模式的持续时间（PROTOCOL.md §1.5）。两端一致，纯粹为了行为可预期
+inline constexpr int kPairingModeSec = 60;
+
 // 常数时间比较，避免用 == 泄露前缀信息
 bool tokenEquals(const QByteArray &a, const QByteArray &b);
 

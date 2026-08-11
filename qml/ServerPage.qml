@@ -38,6 +38,19 @@ Item {
                 tone: App.serverRunning ? Theme.success : Theme.textFaint
             }
 
+            // 常态下发现应答不含设备名（§1.5）。要让别人在列表里看到「icelab」，
+            // 得在这里主动点一下 —— 于是「陌生人能看到设备名」的窗口
+            // 从「永远」缩短成「用户主动开启的那一分钟」。
+            FlatButton {
+                iconName: "radar"
+                visible: App.serverRunning
+                text: App.pairingMode
+                      ? Tr.t("可被发现 · ") + App.pairingRemaining + "s"
+                      : Tr.t("允许被发现")
+                variant: App.pairingMode ? FlatButton.Variant.Danger : FlatButton.Variant.Ghost
+                onClicked: App.pairingMode ? App.stopPairingMode() : App.startPairingMode()
+            }
+
             FlatButton {
                 iconName: "power"
                 text: App.serverRunning ? Tr.t("停止服务") : Tr.t("启动服务")

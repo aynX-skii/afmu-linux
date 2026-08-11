@@ -50,6 +50,10 @@ class AppController : public QObject
     Q_PROPERTY(QStringList localAddresses READ localAddresses NOTIFY serverChanged)
     Q_PROPERTY(QStringList serverLog READ serverLog NOTIFY serverLogChanged)
 
+    // 配对模式：常态下发现应答不含设备名，只有用户点了才短暂公开（PROTOCOL.md §1.5）
+    Q_PROPERTY(bool pairingMode READ pairingMode NOTIFY pairingModeChanged)
+    Q_PROPERTY(int pairingRemaining READ pairingRemaining NOTIFY pairingModeChanged)
+
     // 手机扫这个二维码即可拿到本机地址 + token（PROTOCOL.md §5）
     Q_PROPERTY(QString pairUri READ pairUri NOTIFY pairUriChanged)
 
@@ -105,6 +109,8 @@ public:
     int serverPort() const;
     QStringList localAddresses() const;
     QStringList serverLog() const { return m_log; }
+    bool pairingMode() const;
+    int pairingRemaining() const;
 
     QString pairUri() const;
 
@@ -155,6 +161,10 @@ public slots:
     void stopServer();
     void restartServerIfRunning();
 
+    /** 让本机在 60 秒内的发现应答里带上设备名（PROTOCOL.md §1.5）。 */
+    void startPairingMode();
+    void stopPairingMode();
+
     void copyToClipboard(const QString &text);
     void openLocalFolder(const QString &path);
     QString urlToLocalPath(const QUrl &url) const;
@@ -168,6 +178,7 @@ signals:
     void pathChanged();
     void serverChanged();
     void serverLogChanged();
+    void pairingModeChanged();
     void pairUriChanged();
     void authChanged();
     void incomingAuthChanged();
@@ -217,6 +228,8 @@ private:
 
     // 授权连接
     QTimer *m_authTimer = nullptr;
+    /** 配对模式倒计时的界面刷新（每秒），不是它本身的到期定时器。 */
+    QTimer *m_pairingTick = nullptr;
     // 只为了刷新来访请求弹窗上的倒计时
     QTimer *m_incomingAuthTimer = nullptr;
     bool m_authPending = false;

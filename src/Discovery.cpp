@@ -1,6 +1,8 @@
 #include "Discovery.h"
 #include "I18n.h"
 
+#include <QDateTime>
+
 #include "Protocol.h"
 
 #include <QJsonDocument>
@@ -22,6 +24,37 @@ Discovery::Discovery(QObject *parent)
         }
         emit probeFinished();
     });
+
+    // 配对模式到点自动回到常态。用定时器而不是「下次应答时顺手检查」：
+    // 界面上的倒计时归零时得有人通知它。
+    m_pairingTimer = new QTimer(this);
+    m_pairingTimer->setSingleShot(true);
+    connect(m_pairingTimer, &QTimer::timeout, this, [this] { stopPairingMode(); });
+}
+
+void Discovery::startPairingMode()
+{
+    m_pairingUntil = QDateTime::currentMSecsSinceEpoch() + qint64(afmu::kPairingModeSec) * 1000;
+    m_pairingTimer->start(afmu::kPairingModeSec * 1000);
+    emit logMessage(T(QStringLiteral("允许被发现，%1 秒后自动恢复")).arg(afmu::kPairingModeSec));
+    emit pairingModeChanged();
+}
+
+void Discovery::stopPairingMode()
+{
+    if (m_pairingUntil == 0)
+        return;
+    m_pairingUntil = 0;
+    m_pairingTimer->stop();
+    emit pairingModeChanged();
+}
+
+int Discovery::pairingSecondsLeft() const
+{
+    if (m_pairingUntil == 0)
+        return 0;
+    const qint64 left = m_pairingUntil - QDateTime::currentMSecsSinceEpoch();
+    return left <= 0 ? 0 : int((left + 999) / 1000);
 }
 
 QSet<QString> Discovery::localAddresses()
@@ -148,9 +181,21 @@ void Discovery::readProbeReplies()
             continue; // 多网卡会答多次
         m_seen.insert(key);
 
-        emit deviceFound(o.value(QStringLiteral("name")).toString(T(QStringLiteral("未命名设备"))),
-                         o.value(QStringLiteral("os")).toString(QStringLiteral("unknown")),
-                         hostStr, port);
+        // name/os 从 §1.5 起是**可选**的：对端不在配对模式时不会给。
+        // 见过一次就记下来，于是日常那份列表里，已经认识的设备照样显示名字，
+        // 只有素未谋面的才是一串地址 —— 泄露没了，熟悉感还在。
+        QString name = o.value(QStringLiteral("name")).toString();
+        QString os = o.value(QStringLiteral("os")).toString();
+        if (!name.isEmpty())
+            m_knownNames.insert(key, name);
+        if (!os.isEmpty())
+            m_knownOs.insert(key, os);
+        if (name.isEmpty())
+            name = m_knownNames.value(key);
+        if (os.isEmpty())
+            os = m_knownOs.value(key, QStringLiteral("unknown"));
+
+        emit deviceFound(name.isEmpty() ? hostStr : name, os, hostStr, port);
     }
 }
 
@@ -215,9 +260,14 @@ void Discovery::readRequests()
 
         QJsonObject o;
         o.insert(QStringLiteral("afmu"), afmu::kProtocolVersion);
-        o.insert(QStringLiteral("name"), m_advName);
-        o.insert(QStringLiteral("os"), QStringLiteral("linux"));
         o.insert(QStringLiteral("port"), int(m_advPort));
+        // 设备名和系统只在配对模式下给（PROTOCOL.md §1.5）。常态下应答它们，
+        // 等于任何人发一个 UDP 包就能拿到「这台机器叫 icelab、跑 Linux」——
+        // 一次不需要任何凭证的信息泄露，而且发生在用户完全不知情的时候。
+        if (pairingMode()) {
+            o.insert(QStringLiteral("name"), m_advName);
+            o.insert(QStringLiteral("os"), QStringLiteral("linux"));
+        }
         // 应答里绝不包含 token
         const QByteArray reply = QJsonDocument(o).toJson(QJsonDocument::Compact);
         // 回到探测包的源地址和源端口，不回广播
