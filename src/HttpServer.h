@@ -48,6 +48,8 @@ public:
      */
     void setIdentity(const afmu::Identity *id, PeerStore *peers);
     bool tlsReady() const { return m_tlsReady; }
+    /** 本机身份，配对握手要用它算 SAS。 */
+    const afmu::Identity *identity() const { return m_identity; }
     const QSslConfiguration &tlsConfiguration() const { return m_tlsConfig; }
     PeerStore *peerStore() const { return m_peers; }
 
@@ -90,6 +92,7 @@ private:
     ServerContext m_ctx;
     QPointer<AuthRequests> m_auth;
     QPointer<PeerStore> m_peers;
+    const afmu::Identity *m_identity = nullptr;
     QSslConfiguration m_tlsConfig;
     bool m_tlsReady = false;
     bool m_allowLegacy = true;

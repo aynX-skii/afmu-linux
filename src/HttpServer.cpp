@@ -426,17 +426,12 @@ private slots:
             emit m_server->logMessage(T(QStringLiteral("%1 已通过加密连接接入（%2）"))
                                           .arg(peerHost(), peers->find(fp).name));
         } else {
-            // 不认识就断，别让它进到 HTTP 层。
-            //
-            // 草案 §4.2.4 要求配对握手 /api/pair-v2 跑在 TLS 之内、且此时双方都还没钉扎，
-            // 所以那个接口做出来之后这里要改成「放进来但只许访问它」。
-            // 在它存在之前放行等于开一个没有任何用处的口子，所以现在一律断开。
+            // 不认识，但**不断开**：配对握手就跑在这个状态里 —— TLS 已建立、
+            // 双方都还没钉扎（草案 §4.2.4）。这条连接从此只能碰 /api/pair-v2，
+            // 别的一律 403，包括 /api/info。门禁在 route() 里。
             emit m_server->logMessage(
-                T(QStringLiteral("拒绝了未配对设备的加密连接，指纹 %1"))
+                T(QStringLiteral("未配对设备接入，只允许配对，指纹 %1"))
                     .arg(afmu::Identity::group(fp)));
-            m_sock->abort();
-            deleteLater();
-            return;
         }
 
         // 握手期间对端可能已经把请求一起发过来了，此时不会再有新的 readyRead
@@ -677,6 +672,15 @@ private:
             return;
         }
 
+        // 未钉扎的 v2 连接只有一条路可走（草案 §4.2.4）。这个判断必须排在所有
+        // 路由之前，包括根路径和 /api/info —— 「除了配对什么都不能碰」才是它的意思。
+        if (m_tls && !m_peerPaired) {
+            if (m_path == QLatin1String("/api/pair-v2"))
+                return handlePairV2();
+            sendJson(403, errObj(QStringLiteral("not paired; only /api/pair-v2 is available")));
+            return;
+        }
+
         if (m_path == QLatin1String("/") || m_path.isEmpty()) {
             sendText(200,
                      T(QStringLiteral("AFMU Linux 服务端已就绪。")) + QLatin1Char('\n')
@@ -748,6 +752,124 @@ private:
             return handleTicket();
 
         sendJson(404, errObj(QStringLiteral("unknown endpoint")));
+    }
+
+    /**
+     * v2 配对握手（PROTOCOL-v2-DRAFT.md §4.2.3）。未钉扎的 TLS 连接只能碰这一个接口。
+     *
+     * 三步：`step=commit` 登记并拿到 `nb`，`step=reveal` 揭示 `na` 并得到 SAS，
+     * `GET ?session=` 轮询用户的决定。
+     *
+     * **参数走 query 而不是 JSON body**，和 v1 的每一个接口保持一致。这不只是省事：
+     * 这个接口对**未认证**的对端开放，让它够得到 body 解析那一整套（Content-Length、
+     * chunked、multipart）等于凭空多出一大片攻击面。query 走的是已经被一致性套件
+     * 反复捶过的那条路径。草案原文写的是 JSON body，已按此修正。
+     */
+    void handlePairV2()
+    {
+        AuthRequests *auth = m_server->authRequests();
+        if (!auth) {
+            sendJson(404, errObj(QStringLiteral("unknown endpoint")));
+            return;
+        }
+        const afmu::Identity *id = m_server->identity();
+        if (!id) {
+            sendJson(500, errObj(QStringLiteral("no local identity")));
+            return;
+        }
+
+        if (m_method == "GET") {
+            const AuthRequests::Request r = auth->lookup(param(QStringLiteral("session")));
+            if (r.isNull() || !r.isPairing()) {
+                // 客户端要把 404 当 expired 处理，别当网络错误一直重试
+                sendJson(404, errObj(QStringLiteral("unknown or expired session")));
+                return;
+            }
+            QJsonObject o;
+            o.insert(QStringLiteral("ok"), true);
+            switch (r.status) {
+            case AuthRequests::Status::Pending:
+                o.insert(QStringLiteral("status"), QStringLiteral("pending"));
+                break;
+            case AuthRequests::Status::Denied:
+                o.insert(QStringLiteral("status"), QStringLiteral("denied"));
+                break;
+            case AuthRequests::Status::Expired:
+                o.insert(QStringLiteral("status"), QStringLiteral("expired"));
+                break;
+            case AuthRequests::Status::Granted:
+                o.insert(QStringLiteral("status"), QStringLiteral("granted"));
+                o.insert(QStringLiteral("name"), m_server->context().deviceName);
+                o.insert(QStringLiteral("os"), QStringLiteral("linux"));
+                o.insert(QStringLiteral("port"), int(m_server->actualPort()));
+                // 响应里**没有 token**：v2 的身份就是那对密钥，没有东西需要交出去。
+                break;
+            }
+            sendJson(200, o);
+            return;
+        }
+
+        if (m_method != "POST" && m_method != "PUT") {
+            sendJson(405, errObj(QStringLiteral("method not allowed")));
+            return;
+        }
+
+        const QString step = param(QStringLiteral("step"));
+
+        if (step == QLatin1String("commit")) {
+            const QByteArray commit =
+                QByteArray::fromHex(param(QStringLiteral("commit")).toLatin1());
+            if (commit.size() != 32) {
+                sendJson(400, errObj(QStringLiteral("commit must be 32 bytes of hex")));
+                return;
+            }
+            // 对端的指纹取自握手，**不取请求里自报的**：自报的东西在这一层
+            // 一个字都不能信。
+            const AuthRequests::Request r =
+                auth->createPairing(param(QStringLiteral("name")), param(QStringLiteral("os")),
+                                    peerHost(), m_peerFp, commit);
+            if (r.isNull()) {
+                const int wait = auth->retryAfterSec(peerHost());
+                QList<QPair<QByteArray, QByteArray>> extra;
+                if (wait > 0)
+                    extra.append({"Retry-After", QByteArray::number(wait)});
+                sendJson(429, errObj(QStringLiteral("another pairing is pending, or this address "
+                                                    "was refused recently")),
+                         extra);
+                return;
+            }
+            emit m_server->logMessage(T(QStringLiteral("%1（%2）请求配对")).arg(r.name, r.host));
+
+            QJsonObject o;
+            o.insert(QStringLiteral("ok"), true);
+            o.insert(QStringLiteral("session"), r.id);
+            o.insert(QStringLiteral("nb"), QString::fromLatin1(r.nonceB.toHex()));
+            o.insert(QStringLiteral("expires"), afmu::kAuthTimeoutSec);
+            sendJson(200, o);
+            return;
+        }
+
+        if (step == QLatin1String("reveal")) {
+            const QByteArray na = QByteArray::fromHex(param(QStringLiteral("na")).toLatin1());
+            const QString sas = auth->revealPairing(param(QStringLiteral("session")), na,
+                                                    id->fingerprint());
+            if (sas.isEmpty()) {
+                // commit 对不上、session 不在、长度不对 —— 一律作废，不区分原因：
+                // 区分了就等于告诉对方哪一步猜错了。
+                sendJson(400, errObj(QStringLiteral("commit does not match, or unknown session")));
+                return;
+            }
+            QJsonObject o;
+            o.insert(QStringLiteral("ok"), true);
+            // 回带 sas 只是让发起方**自检**两端算的一致（防实现 bug）。
+            // 发起方必须显示自己算的那个 —— 显示这个等于让中间人回一个你期望的串。
+            o.insert(QStringLiteral("sas"), sas);
+            o.insert(QStringLiteral("expires"), afmu::kAuthTimeoutSec);
+            sendJson(200, o);
+            return;
+        }
+
+        sendJson(400, errObj(QStringLiteral("unknown step")));
     }
 
     /**
@@ -1625,6 +1747,7 @@ void HttpServer::setContext(const ServerContext &ctx)
 void HttpServer::setIdentity(const afmu::Identity *id, PeerStore *peers)
 {
     m_peers = peers;
+    m_identity = nullptr;
     m_tlsReady = false;
     m_tlsConfig = QSslConfiguration();
 
@@ -1644,6 +1767,7 @@ void HttpServer::setIdentity(const afmu::Identity *id, PeerStore *peers)
     }
     m_tlsConfig = cfg;
     m_tlsReady = true;
+    m_identity = id;
 }
 
 bool HttpServer::start(quint16 preferred)

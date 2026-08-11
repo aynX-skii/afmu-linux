@@ -1,7 +1,11 @@
 #include "AuthRequests.h"
 
+#include "Identity.h"
+#include "PairSas.h"
+
 #include "Protocol.h"
 
+#include <QCryptographicHash>
 #include <QDateTime>
 #include <QRandomGenerator>
 
@@ -129,6 +133,80 @@ AuthRequests::Request AuthRequests::create(const QString &name, const QString &o
     m_pending = r;
     emit pendingChanged();
     return r;
+}
+
+AuthRequests::Request AuthRequests::createPairing(const QString &name, const QString &os,
+                                                  const QString &host, const QString &peerFp,
+                                                  const QByteArray &commit)
+{
+    if (!m_enabled)
+        return {};
+    if (peerFp.isEmpty() || commit.size() != 32)
+        return {};
+    sweep();
+    // v1 和 v2 共用这一个待决位置：分开算的话，两边各来一个就同时弹两个窗，
+    // 「一次只受理一个」也就白写了。
+    if (!m_pending.isNull())
+        return {};
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (m_globalUntil > now)
+        return {};
+    if (m_blocked.value(host, 0) > now)
+        return {};
+
+    Request r;
+    r.id = newId();
+    r.name = displayText(name, 64);
+    if (r.name.isEmpty())
+        r.name = host;
+    r.os = displayText(os, 16);
+    r.host = host;
+    r.createdAt = now;
+    r.status = Status::Pending;
+    r.peerFp = peerFp;
+    r.commit = commit;
+    // 本机的随机数在**收到 commit 之后**才生成，但对端此时还看不到它 ——
+    // 顺序不重要，重要的是对端已经把自己的锁死了（§4.2.2）。
+    r.nonceB.resize(32);
+    QRandomGenerator::system()->generate(r.nonceB.begin(), r.nonceB.end());
+
+    m_pending = r;
+    emit pendingChanged();
+    return r;
+}
+
+QString AuthRequests::revealPairing(const QString &id, const QByteArray &nonceA,
+                                    const QByteArray &localFingerprint)
+{
+    sweep();
+    if (id.isEmpty() || m_pending.isNull() || m_pending.id != id || !m_pending.isPairing())
+        return {};
+    if (nonceA.size() != 32)
+        return {};
+
+    // commit 对不上 = 对端在看到 n_b 之后换了 n_a，或者中间有人改了。
+    // 整个 session 作废，不给重试 —— 允许重试等于允许它一直换 n_a 试下去，
+    // commit 这一步就白做了。
+    if (QCryptographicHash::hash(nonceA, QCryptographicHash::Sha256) != m_pending.commit) {
+        m_pending = Request();
+        emit pendingChanged();
+        return {};
+    }
+
+    const QByteArray peerRaw = afmu::Identity::fromBase32(m_pending.peerFp);
+    const QString sas = afmu::computeSas(peerRaw, localFingerprint, nonceA, m_pending.nonceB);
+    if (sas.isEmpty()) {
+        // 算不出来就没有可比对的东西。宁可整个作废，也不能弹一个没有码的窗
+        // 让用户去点"允许"。
+        m_pending = Request();
+        emit pendingChanged();
+        return {};
+    }
+
+    m_pending.nonceA = nonceA;
+    m_pending.sas = sas;
+    emit pendingChanged();
+    return sas;
 }
 
 AuthRequests::Request AuthRequests::lookup(const QString &id)

@@ -86,6 +86,11 @@ class AppController : public QObject
     Q_PROPERTY(QString incomingAuthHost READ incomingAuthHost NOTIFY incomingAuthChanged)
     Q_PROPERTY(QString incomingAuthOs READ incomingAuthOs NOTIFY incomingAuthChanged)
     Q_PROPERTY(QString incomingAuthCode READ incomingAuthCode NOTIFY incomingAuthChanged)
+    // v2 配对请求：显示的不是 4 位确认码而是 8 字符 SAS，用户拿它跟对端屏幕比对
+    Q_PROPERTY(bool incomingAuthIsPairing READ incomingAuthIsPairing NOTIFY incomingAuthChanged)
+    Q_PROPERTY(QString incomingAuthFingerprint READ incomingAuthFingerprint NOTIFY incomingAuthChanged)
+    /** 8 字符 SAS 的展示形式。第 2 步之前是空的 —— 空就别显示"允许"按钮。 */
+    Q_PROPERTY(QString incomingAuthSas READ incomingAuthSas NOTIFY incomingAuthChanged)
     Q_PROPERTY(int incomingAuthRemaining READ incomingAuthRemaining NOTIFY incomingAuthChanged)
 
     Q_PROPERTY(QString toastText READ toastText NOTIFY toast)
@@ -147,6 +152,9 @@ public:
     QString incomingAuthHost() const;
     QString incomingAuthOs() const;
     QString incomingAuthCode() const;
+    bool incomingAuthIsPairing() const;
+    QString incomingAuthFingerprint() const;
+    QString incomingAuthSas() const;
     int incomingAuthRemaining() const;
 
     QString toastText() const { return m_toastText; }

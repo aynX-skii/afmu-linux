@@ -7,6 +7,7 @@
 #include "HttpServer.h"
 #include "Models.h"
 #include "Identity.h"
+#include "PairSas.h"
 #include "PeerClient.h"
 #include "PeerStore.h"
 #include "Protocol.h"
@@ -202,8 +203,18 @@ AppController::AppController(QObject *parent)
     });
     connect(m_incomingAuth, &AuthRequests::pendingChanged, this, [this] {
         if (incomingAuthPending()) {
-            appendLog(T(QStringLiteral("%1（%2）请求连接本机，确认码 %3"))
-                          .arg(incomingAuthName(), incomingAuthHost(), incomingAuthCode()));
+            // v2 配对没有 4 位确认码，只有 SAS，而 SAS 要等第 2 步（reveal）才算得出来 ——
+            // 第 1 步就打一条「确认码 」的空日志只会让人以为出了错。
+            const AuthRequests::Request r = m_incomingAuth->pending();
+            if (r.isPairing()) {
+                if (!r.sas.isEmpty()) {
+                    appendLog(T(QStringLiteral("%1（%2）请求配对，比对码 %3"))
+                                  .arg(r.name, r.host, afmu::formatSas(r.sas)));
+                }
+            } else {
+                appendLog(T(QStringLiteral("%1（%2）请求连接本机，确认码 %3"))
+                              .arg(incomingAuthName(), incomingAuthHost(), incomingAuthCode()));
+            }
             m_incomingAuthTimer->start();
         } else {
             m_incomingAuthTimer->stop();
@@ -510,6 +521,21 @@ QString AppController::incomingAuthHost() const { return m_incomingAuth->pending
 QString AppController::incomingAuthOs() const { return m_incomingAuth->pending().os; }
 QString AppController::incomingAuthCode() const { return m_incomingAuth->pending().code; }
 
+bool AppController::incomingAuthIsPairing() const
+{
+    return m_incomingAuth->pending().isPairing();
+}
+
+QString AppController::incomingAuthFingerprint() const
+{
+    return afmu::Identity::group(m_incomingAuth->pending().peerFp);
+}
+
+QString AppController::incomingAuthSas() const
+{
+    return afmu::formatSas(m_incomingAuth->pending().sas);
+}
+
 int AppController::incomingAuthRemaining() const
 {
     return m_incomingAuth->pending().remainingSec(QDateTime::currentMSecsSinceEpoch());
@@ -520,6 +546,24 @@ void AppController::approveIncomingAuth()
     const AuthRequests::Request r = m_incomingAuth->pending();
     if (r.isNull())
         return;
+
+    if (r.isPairing()) {
+        // v2：用户点「允许」这一下，就是把对端指纹写进配对表 —— 也就是开门
+        // （草案 §4.2.3）。**没有 token 交出去**，身份就是那对密钥。
+        PeerRecord rec;
+        rec.fp = r.peerFp;
+        rec.name = r.name;
+        rec.os = r.os;
+        rec.lastHost = r.host;
+        rec.lastPort = r.port > 0 ? r.port : int(afmu::kDefaultHttpPort);
+        m_peers->upsert(rec);
+        m_incomingAuth->decide(r.id, true);
+        appendLog(T(QStringLiteral("已与 %1 配对，指纹 %2"))
+                      .arg(r.name, afmu::Identity::group(r.peerFp)));
+        notify(T(QStringLiteral("已与 %1 配对")).arg(r.name), false);
+        return;
+    }
+
     // token 到这一刻才离开本机。对方随后会用它调 /api/pair 把自己的 token 回填过来，
     // 于是两个方向一起通（PROTOCOL.md §3.9）。
     m_incomingAuth->decide(r.id, true);

@@ -40,6 +40,19 @@ public:
         qint64 createdAt = 0;
         Status status = Status::Pending;
 
+        // ---- v2 配对（PROTOCOL-v2-DRAFT.md §4.2.3）。v1 请求里这几项都是空的。
+
+        /** 对端的 SPKI 指纹，取自 TLS 握手 —— **不是**请求里自己报的。非空即 v2。 */
+        QString peerFp;
+        /** 对端在第 1 步交的 `SHA-256(n_a)`，第 2 步用来验它没在看到 n_b 之后改主意。 */
+        QByteArray commit;
+        QByteArray nonceA;
+        QByteArray nonceB;
+        /** 两端各自算出来的 8 字符码，用户比对的就是它。第 2 步之后才有值。 */
+        QString sas;
+
+        bool isPairing() const { return !peerFp.isEmpty(); }
+
         bool isNull() const { return id.isEmpty(); }
         bool expired(qint64 now) const;
         /** 还剩几秒，给界面倒计时用。 */
@@ -55,6 +68,25 @@ public:
     /** 登记一个请求。已有请求在等 / 该地址在冷却 / 全局冷却中 / 开关关着 → 返回空的 Request。 */
     Request create(const QString &name, const QString &os, const QString &host, int port,
                    const QString &code);
+
+    /**
+     * v2 配对的第 1 步（§4.2.3）。防滥用走的是**同一套**：同一时刻只留一个待决请求，
+     * v1 和 v2 共用这一个位置 —— 否则混着来就能绕开"一次只弹一个"。
+     *
+     * `peerFp` 必须来自 TLS 握手，绝不能取请求体里对端自报的值。
+     */
+    Request createPairing(const QString &name, const QString &os, const QString &host,
+                          const QString &peerFp, const QByteArray &commit);
+
+    /**
+     * v2 配对的第 2 步：对端揭示 `n_a`。
+     *
+     * 校验 `SHA-256(n_a) == commit`，不等则**作废整个 session** 并返回空 —— 不给重试，
+     * 重试等于允许它换一个 n_a 再试一次，commit 就白做了。
+     * 通过则算出 SAS 并返回（同时存进待决请求，界面显示同一个值）。
+     */
+    QString revealPairing(const QString &id, const QByteArray &nonceA,
+                          const QByteArray &localFingerprint);
 
     /**
      * create() 返回空之后问「还要等几秒」，给 429 的 Retry-After 用。
