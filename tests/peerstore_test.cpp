@@ -297,6 +297,14 @@ int main(int argc, char **argv)
         // 指纹不截断：用户比对的是全长，而二维码容量在这里根本不是约束
         check(v2.contains(a) && a.size() == 52, "指纹在码里是完整的 52 个字符");
 
+        // 打出来当 Android 端 PairPayloadTest 的向量：两端对不上的表现是
+        // 「扫了没反应」，用户完全无从下手。
+        std::fprintf(stderr, "  [向量] 配对码 %s\n",
+                     qPrintable(afmu::buildPairUri(QStringLiteral("客厅 电脑"),
+                                                   QStringLiteral("linux"),
+                                                   {QStringLiteral("192.168.1.30")}, 8765,
+                                                   QString(), a)));
+
         // 没有 token 也没有指纹 = 这个码什么都干不了，不如不出
         check(afmu::buildPairUri(QStringLiteral("ice"), QStringLiteral("linux"), hosts, 8765,
                                  QString())
