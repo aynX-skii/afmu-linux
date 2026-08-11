@@ -93,6 +93,21 @@ inline constexpr int kRefusalForgetSec = 1800;
 /** 用户点『允许被发现』之后，应答带上 name/os 的时长 */
 inline constexpr int kPairingModeSec = 60;
 
+// ---- 设备身份（v2） --------------------------------------------------------
+// PROTOCOL-v2-DRAFT.md §3。v1 还用不到，但指纹的定义两端必须一模一样 —— 差一层封装就永远对不上，而症状是「证书明明对却一直不匹配」，极难查。
+
+/** 不用 RSA：生成快、握手包小、Android KeyStore 原生支持 */
+inline const char *const kIdentityCurve = "P-256";
+
+/** 20 年。钉扎之后有效期本来就没有意义，只是别让 TLS 栈以过期为由拒绝 */
+inline constexpr int kIdentityValidityDays = 7300;
+
+/** base32 字母表，去掉 I 和 O（0 和 1 本来就不在里面）—— 这串要用户对着屏幕比对 */
+inline const char *const kFingerprintAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/** 展示时每几个字符空一格 */
+inline constexpr int kFingerprintGroupSize = 5;
+
 // ---- 下载券 -------------------------------------------------------------
 // PROTOCOL.md §2.5。浏览器 <a href> 带不了自定义头，用它顶替 ?token=。
 

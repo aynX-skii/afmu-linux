@@ -17,6 +17,11 @@ find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControl
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(QRENCODE REQUIRED IMPORTED_TARGET libqrencode)
 
+# v2 的设备身份要生成 EC P-256 自签证书，Qt 没有证书生成 API（只能用现成的）。
+# libcrypto 本来就被 Qt Network 传递链进来了，这里只是把头文件也拿到手。
+# Debian/Ubuntu: libssl-dev，Fedora: openssl-devel，Arch: openssl
+find_package(OpenSSL REQUIRED)
+
 qt_standard_project_setup(REQUIRES 6.5)
 
 set(AFMU_CPP
@@ -27,6 +32,7 @@ set(AFMU_CPP
     src/QrCode.h              src/QrCode.cpp
     src/PathSafety.h          src/PathSafety.cpp
     src/Config.h              src/Config.cpp
+    src/Identity.h            src/Identity.cpp
     src/I18n.h                src/I18n.cpp
     src/Discovery.h           src/Discovery.cpp
     src/AuthThrottle.h        src/AuthThrottle.cpp
@@ -103,6 +109,7 @@ target_link_libraries(afmu PRIVATE
     Qt6::Quick
     Qt6::QuickControls2
     PkgConfig::QRENCODE
+    OpenSSL::Crypto
 )
 
 install(TARGETS afmu RUNTIME DESTINATION bin)
