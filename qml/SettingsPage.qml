@@ -7,6 +7,9 @@ import Afmu
 Item {
     id: page
 
+    // 等确认的解除配对，按指纹记 —— 列表可能在弹窗开着的时候变，按行号记会删错设备
+    property string pendingUnpair: ""
+
     Flickable {
         anchors.fill: parent
         contentWidth: width
@@ -280,6 +283,148 @@ Item {
                 }
             }
 
+            // ------------------------------------------------------ 已配对设备（v2）
+            //
+            // 这张表在 v2 里就是访问控制列表：里面有指纹的设备才握得上 TLS。
+            // 写入要等 §12 第 3–6 步的握手接上，但**删除入口必须先存在** ——
+            // 否则第一次写进去的东西用户就拿不掉了，而那是一道开着的门。
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: peersCol.implicitHeight + 2 * Theme.pad
+                radius: Theme.radius
+                color: Theme.surface
+                border.width: 1
+                border.color: Theme.borderSoft
+
+                ColumnLayout {
+                    id: peersCol
+                    anchors.fill: parent
+                    anchors.margins: Theme.pad
+                    spacing: Theme.gapMd
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        SectionLabel { text: Tr.t("已配对设备") }
+                        Item { Layout.fillWidth: true }
+                        StatBadge {
+                            visible: App.peers.count > 0
+                            label: App.peers.count + " " + Tr.t("台")
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: App.peers.count === 0
+                        text: Tr.t("还没有配对过的设备。加密连接（协议 v2）启用后，配对成功的设备会出现在这里。")
+                        font.pixelSize: Theme.fsSm
+                        color: Theme.textFaint
+                        wrapMode: Text.WordWrap
+                    }
+
+                    Repeater {
+                        model: App.peers
+
+                        delegate: Rectangle {
+                            required property int index
+                            required property string fp
+                            required property string fpDisplay
+                            required property string name
+                            required property string os
+                            required property string lastAddress
+                            required property string pairedAtText
+                            required property bool pinned
+
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: peerRow.implicitHeight + Theme.gapMd
+                            radius: Theme.radiusSm
+                            color: Theme.alpha(Theme.text, 0.03)
+                            border.width: 1
+                            border.color: Theme.borderSoft
+
+                            RowLayout {
+                                id: peerRow
+                                anchors.fill: parent
+                                anchors.margins: Theme.gap
+                                spacing: Theme.gapMd
+
+                                AppIcon {
+                                    name: os === "android" ? "phone" : "monitor"
+                                    size: 18
+                                    color: Theme.textDim
+                                }
+
+                                ColumnLayout {
+                                    Layout.fillWidth: true
+                                    spacing: 2
+
+                                    RowLayout {
+                                        spacing: Theme.gap
+                                        Text {
+                                            text: name !== "" ? name : Tr.t("未命名设备")
+                                            font.pixelSize: Theme.fsMd
+                                            color: Theme.text
+                                        }
+                                        // 只走加密、不允许回退明文（草案 §8.1）
+                                        StatBadge {
+                                            visible: pinned
+                                            label: Tr.t("仅加密")
+                                            tone: Theme.success
+                                        }
+                                    }
+
+                                    // 指纹是这台设备的身份本身。全长显示，不截断 ——
+                                    // 用户要拿它跟对端屏幕上的比，少一位就比不出问题。
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: fpDisplay
+                                        font.family: "monospace"
+                                        font.pixelSize: Theme.fsXs
+                                        color: Theme.textDim
+                                        wrapMode: Text.WrapAnywhere
+                                    }
+
+                                    Text {
+                                        text: [pairedAtText !== "" ? Tr.t("配对于 ") + pairedAtText : "",
+                                               lastAddress !== "" ? Tr.t("上次 ") + lastAddress : ""]
+                                              .filter(function (s) { return s !== "" }).join("  ·  ")
+                                        font.pixelSize: Theme.fsXs
+                                        color: Theme.textFaint
+                                    }
+                                }
+
+                                IconButton {
+                                    iconName: "copy"
+                                    tip: Tr.t("复制指纹")
+                                    onClicked: App.copyToClipboard(fpDisplay)
+                                }
+                                IconButton {
+                                    iconName: "trash"
+                                    tip: Tr.t("解除配对")
+                                    activeColor: Theme.danger
+                                    onClicked: {
+                                        page.pendingUnpair = fp
+                                        unpairDialog.open2(
+                                            Tr.t("解除配对"),
+                                            Tr.t("解除后这台设备将无法再连接本机，要用需重新配对。") + "\n\n"
+                                                + (name !== "" ? name + "\n" : "") + fpDisplay,
+                                            true)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        Layout.fillWidth: true
+                        visible: App.peers.count > 0
+                        text: Tr.t("配对关系不会自动过期 —— 半年没用的设备下次还能直接连。要清理只能在这里手动解除。")
+                        font.pixelSize: Theme.fsXs
+                        color: Theme.textFaint
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
             // ------------------------------------------------------ 说明
             Rectangle {
                 Layout.fillWidth: true
@@ -335,6 +480,15 @@ Item {
                     }
                 }
             }
+        }
+    }
+
+    ConfirmDialog {
+        id: unpairDialog
+        confirmText: Tr.t("解除配对")
+        onAccepted: {
+            App.peers.remove(page.pendingUnpair)
+            page.pendingUnpair = ""
         }
     }
 

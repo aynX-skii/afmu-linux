@@ -15,6 +15,7 @@ class DeviceModel;
 class RemoteFileModel;
 class TransferModel;
 class PeerClient;
+class PeerStore;
 class HttpServer;
 class AuthRequests;
 
@@ -26,6 +27,10 @@ class AppController : public QObject
     Q_PROPERTY(QObject *devices READ devicesObj CONSTANT)
     Q_PROPERTY(QObject *files READ filesObj CONSTANT)
     Q_PROPERTY(QObject *transfers READ transfersObj CONSTANT)
+    // 配对表：v2 的授权依据（PROTOCOL-v2-DRAFT.md §4.3）。v2 握手还没接上，
+    // 所以现在只有「看和删」有意义 —— 但删除入口必须先于写入存在，
+    // 否则第一次写进去的东西用户就拿不掉了。
+    Q_PROPERTY(QObject *peers READ peersObj CONSTANT)
 
     Q_PROPERTY(bool scanning READ scanning NOTIFY scanningChanged)
     Q_PROPERTY(bool connected READ connected NOTIFY peerChanged)
@@ -86,6 +91,10 @@ public:
     QObject *devicesObj() const;
     QObject *filesObj() const;
     QObject *transfersObj() const;
+    QObject *peersObj() const;
+
+    /** 配对表本身，给 C++ 侧（将来的 TLS 钉扎）用。 */
+    PeerStore *peers() const { return m_peers; }
 
     bool scanning() const { return m_scanning; }
     bool connected() const { return m_connected; }
@@ -206,6 +215,7 @@ private:
     RemoteFileModel *m_files = nullptr;
     TransferModel *m_transfers = nullptr;
     PeerClient *m_client = nullptr;
+    PeerStore *m_peers = nullptr;
     HttpServer *m_server = nullptr;
     AuthRequests *m_incomingAuth = nullptr;
 

@@ -25,6 +25,20 @@ cmake --build build
 ./build/afmu
 ```
 
+### 测试
+
+默认不建，打开也不引入新依赖（只多用 `Qt6::Core`）：
+
+```bash
+cmake -S . -B build -G Ninja -DAFMU_TESTS=ON
+cmake --build build
+./build/afmu_peerstore_test          # 配对表：指纹规范化、去重、落盘、坏文件留底
+```
+
+协议层面的一致性由 `AndroidFileManagerUtils/tests/conformance.py` 黑盒验证，
+用法见那边的 `tests/README.md` —— **注意它会对每个共享目录发删除请求**，
+只能对着隔离配置起的实例跑。
+
 ---
 
 ## 界面
@@ -35,7 +49,7 @@ cmake --build build
 | **浏览文件** | 面包屑导航、多选下载、新建目录、删除、拖文件进窗口即上传 |
 | **传输** | 每个任务的进度 / 速度 / 剩余时间，可取消、重试、定位到文件 |
 | **接收服务** | 开关本机服务端、显示本机 token 和地址、管理共享目录、活动日志 |
-| **设置** | 设备名、端口、收件箱、下载目录、发现超时、界面语言 |
+| **设置** | 设备名、端口、收件箱、下载目录、发现超时、界面语言、已配对设备（v2 配对表，可查看指纹 / 解除） |
 
 快捷键：`Ctrl+1..5` 切页，`F5` / `Ctrl+R` 刷新当前目录。
 

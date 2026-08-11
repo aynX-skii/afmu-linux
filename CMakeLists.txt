@@ -31,8 +31,10 @@ set(AFMU_CPP
     src/Protocol.h            src/Protocol.cpp
     src/QrCode.h              src/QrCode.cpp
     src/PathSafety.h          src/PathSafety.cpp
+    src/JsonFile.h            src/JsonFile.cpp
     src/Config.h              src/Config.cpp
     src/Identity.h            src/Identity.cpp
+    src/PeerStore.h           src/PeerStore.cpp
     src/I18n.h                src/I18n.cpp
     src/Discovery.h           src/Discovery.cpp
     src/AuthThrottle.h        src/AuthThrottle.cpp
@@ -113,3 +115,25 @@ target_link_libraries(afmu PRIVATE
 )
 
 install(TARGETS afmu RUNTIME DESTINATION bin)
+
+# ---------------------------------------------------------------- 测试
+#
+# 默认不建：整个项目的取向是 apt 只装 qt6-base-dev / qt6-declarative-dev 就能编，
+# 打开它也只多用 Qt6::Core，不引入任何新依赖。
+#
+#   cmake -S . -B build -DAFMU_TESTS=ON && cmake --build build
+#   ./build/afmu_peerstore_test
+option(AFMU_TESTS "编译单元测试" OFF)
+if(AFMU_TESTS)
+    add_executable(afmu_peerstore_test
+        tests/peerstore_test.cpp
+        src/PeerStore.h  src/PeerStore.cpp
+        src/Identity.h   src/Identity.cpp
+        src/JsonFile.h   src/JsonFile.cpp
+    )
+    target_include_directories(afmu_peerstore_test PRIVATE src)
+    target_link_libraries(afmu_peerstore_test PRIVATE Qt6::Core OpenSSL::Crypto)
+
+    enable_testing()
+    add_test(NAME peerstore COMMAND afmu_peerstore_test)
+endif()

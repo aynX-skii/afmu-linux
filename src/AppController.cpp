@@ -7,6 +7,7 @@
 #include "HttpServer.h"
 #include "Models.h"
 #include "PeerClient.h"
+#include "PeerStore.h"
 #include "Protocol.h"
 #include "TransferModel.h"
 
@@ -32,6 +33,7 @@ AppController::AppController(QObject *parent)
     , m_devices(new DeviceModel(this))
     , m_files(new RemoteFileModel(this))
     , m_client(new PeerClient(this))
+    , m_peers(new PeerStore(this))
     , m_server(new HttpServer(this))
     , m_incomingAuth(new AuthRequests(this))
 {
@@ -44,6 +46,12 @@ AppController::AppController(QObject *parent)
     // 并告诉他原文件留在哪 —— token 还能从那里抠回来。
     if (!m_config->loadError().isEmpty())
         appendLog(m_config->loadError());
+
+    // 配对表放在 config.json 旁边，跟着同一个 XDG 目录走。
+    m_peers->load(QDir(QFileInfo(m_config->configFilePath()).absolutePath())
+                      .filePath(QStringLiteral("peers.json")));
+    if (!m_peers->loadError().isEmpty())
+        appendLog(m_peers->loadError());
 
     m_transfers = new TransferModel(m_client, m_config, this);
     m_client->setToken(m_config->peerToken());
@@ -186,6 +194,7 @@ AppController::~AppController() = default;
 QObject *AppController::devicesObj() const { return m_devices; }
 QObject *AppController::filesObj() const { return m_files; }
 QObject *AppController::transfersObj() const { return m_transfers; }
+QObject *AppController::peersObj() const { return m_peers; }
 
 QString AppController::peerHost() const { return m_client->host(); }
 int AppController::peerPort() const { return m_client->port(); }

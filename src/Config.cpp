@@ -1,14 +1,12 @@
 #include "Config.h"
 
+#include "JsonFile.h"
 #include "Protocol.h"
 
-#include <QDateTime>
 #include <QDir>
-#include <QFile>
 #include <QHostInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QSaveFile>
 #include <QStandardPaths>
 
 Config::Config(QObject *parent)
@@ -33,44 +31,12 @@ void Config::load()
     // 都会让用户的 token、serveRoots、设备名**当场消失**，而且没有任何提示 ——
     // 下次打开只会发现「怎么全变回默认了」，token 变了则所有设备一起连不上。
     //
-    // 现在：读不出来就把原文件改名留底，绝不原地覆盖。
-    const bool existed = QFileInfo::exists(m_path);
-    bool unreadable = false;
-
-    if (existed) {
-        QFile f(m_path);
-        if (!f.open(QIODevice::ReadOnly)) {
-            unreadable = true;
-            m_loadError = tr("配置文件打不开：%1").arg(f.errorString());
-        } else {
-            const QByteArray raw = f.readAll();
-            f.close();
-            QJsonParseError err{};
-            const QJsonDocument doc = QJsonDocument::fromJson(raw, &err);
-            if (doc.isObject()) {
-                m_json = doc.object();
-            } else {
-                unreadable = true;
-                m_loadError = tr("配置文件解析失败（第 %1 字节）：%2")
-                                  .arg(err.offset)
-                                  .arg(err.errorString());
-            }
-        }
-    }
-
-    if (unreadable) {
-        // 留底再继续。用默认值跑起来是对的 —— 总比打不开好 ——
-        // 但用户得有机会把 token 抠回来。
-        const QString backup =
-            m_path + QStringLiteral(".broken-")
-            + QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd-HHmmss"));
-        if (QFile::rename(m_path, backup))
-            m_loadError += tr("；原文件已保留为 %1").arg(backup);
-        else
-            m_loadError += tr("；而且备份也失败了，已放弃写入以免覆盖它");
-    }
+    // 判断本身在 JsonFile 里，peers.json 也要用同一套（丢配对关系和丢 token 一样糟）。
+    const afmu::JsonLoadResult r = afmu::loadJson(m_path, afmu::JsonShape::Object);
+    m_json = r.doc.object();
+    m_loadError = r.error;
     // 备份失败时宁可不写：原文件里可能还留着能救回来的 token
-    m_readOnlyFallback = unreadable && QFileInfo::exists(m_path);
+    m_readOnlyFallback = r.readOnlyFallback;
 
     bool dirty = false;
     auto ensure = [&](const QString &key, const QJsonValue &def) {
@@ -123,13 +89,7 @@ void Config::save()
 {
     if (m_readOnlyFallback)
         return; // 见 load()：原文件还在，里面可能有能救回来的 token
-    QDir().mkpath(QFileInfo(m_path).absolutePath());
-    QSaveFile f(m_path);
-    if (!f.open(QIODevice::WriteOnly))
-        return;
-    f.write(QJsonDocument(m_json).toJson(QJsonDocument::Indented));
-    if (f.commit())
-        QFile::setPermissions(m_path, QFile::ReadOwner | QFile::WriteOwner);
+    afmu::saveJson(m_path, QJsonDocument(m_json));
 }
 
 void Config::setValue(const QString &key, const QJsonValue &v)
