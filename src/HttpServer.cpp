@@ -500,19 +500,38 @@ private:
 
     bool hasParam(const QString &key) const { return m_query.hasQueryItem(key); }
 
-    // 三种等价写法，按顺序取第一个非空值
+    /**
+     * 两种等价写法，按顺序取第一个非空值（PROTOCOL.md §2.2）。
+     *
+     * `?token=` 曾经是第三种，已经去掉：凭证进了 URL 就会落进代理日志、
+     * 浏览器历史和 Referer。它当初存在的理由 —— 浏览器 `<a href>` 带不了自定义头 ——
+     * 现在由下载券承担（§2.5）。
+     */
     bool authorized() const
     {
         const ServerContext &ctx = m_server->context();
         QByteArray given = m_headers.value(QByteArray(afmu::kTokenHeader).toLower());
-        if (given.isEmpty() && hasParam(QStringLiteral("token")))
-            given = param(QStringLiteral("token")).toUtf8();
         if (given.isEmpty()) {
             const QByteArray auth = m_headers.value("authorization");
             if (auth.toLower().startsWith("bearer "))
                 given = auth.mid(7).trimmed();
         }
         return afmu::tokenEquals(given, ctx.token.toUtf8());
+    }
+
+    /**
+     * 下载是唯一还认券的接口 —— 它也是唯一会被浏览器直接导航到的接口。
+     * 券绑定这一个路径（§2.5）。
+     */
+    bool authorizedForDownload() const
+    {
+        if (authorized())
+            return true;
+        const QString ticket = param(QStringLiteral("ticket"));
+        if (ticket.isEmpty())
+            return false;
+        return afmu::verifyDownloadTicket(m_server->context().token, param(QStringLiteral("path")),
+                                          ticket, QDateTime::currentMSecsSinceEpoch());
     }
 
     // ---------------------------------------------------------- 路由
@@ -568,7 +587,10 @@ private:
                      {{"Retry-After", QByteArray::number(wait)}});
             return;
         }
-        if (!authorized()) {
+        // 下载额外认券：它是唯一会被浏览器直接导航到的接口，那里挂不上头（§2.5）
+        const bool ok = m_path == QLatin1String("/api/download") ? authorizedForDownload()
+                                                                 : authorized();
+        if (!ok) {
             const int wait = m_server->throttle().noteFailure(peer, now);
             if (wait > 0) {
                 emit m_server->logMessage(
@@ -597,6 +619,8 @@ private:
             return handleDelete();
         if (m_path == QLatin1String("/api/pair"))
             return handlePair();
+        if (m_path == QLatin1String("/api/ticket"))
+            return handleTicket();
 
         sendJson(404, errObj(QStringLiteral("unknown endpoint")));
     }
@@ -1028,6 +1052,29 @@ private:
         m_phase = Phase::Body;
         if (!m_useMultipart && !m_chunked && m_bodyRemaining == 0)
             finishUpload();
+    }
+
+    /**
+     * 为一个路径签一张下载券（PROTOCOL.md §2.5）。走的是头鉴权，
+     * 所以页面本来就得先拿到 token；券只是让 `<a href>` 不必带着它。
+     *
+     * 先解析路径再签：给一个越界的路径签券，等于向对方确认了它存在。
+     */
+    void handleTicket()
+    {
+        const ServerContext &ctx = m_server->context();
+        const QString raw = param(QStringLiteral("path"));
+        const QString resolved = afmu::resolveUnderRoots(raw, ctx.roots);
+        if (resolved.isEmpty() || !QFileInfo(resolved).isFile()) {
+            sendJson(404, errObj(QStringLiteral("no readable file")));
+            return;
+        }
+        QJsonObject o;
+        o.insert(QStringLiteral("ok"), true);
+        o.insert(QStringLiteral("ticket"),
+                 afmu::issueDownloadTicket(ctx.token, raw, QDateTime::currentMSecsSinceEpoch()));
+        o.insert(QStringLiteral("expires"), afmu::kTicketTtlSec);
+        sendJson(200, o);
     }
 
     void handleMkdir()

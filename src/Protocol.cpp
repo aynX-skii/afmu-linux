@@ -1,6 +1,8 @@
 #include "Protocol.h"
 
+#include <QCryptographicHash>
 #include <QHostAddress>
+#include <QMessageAuthenticationCode>
 #include <QRandomGenerator>
 #include <QUrl>
 #include <QUrlQuery>
@@ -117,6 +119,50 @@ bool originMatchesHost(const QString &origin, const QString &hostHeader)
     const int hostPort = rest.startsWith(QLatin1Char(':')) ? rest.mid(1).toInt() : 80;
 
     return originPort == hostPort;
+}
+
+namespace {
+
+/**
+ * 域分隔前缀保证这个 MAC 永远不会被当成同一把钥匙算出来的别的用途的 MAC，
+ * 换行符保证 exp 和 path 不会黏成一个有歧义的串。
+ */
+QString ticketMac(const QString &token, qint64 exp, const QString &path)
+{
+    const QByteArray msg =
+        QStringLiteral("afmu-dl-v1\n%1\n%2").arg(exp).arg(path).toUtf8();
+    const QByteArray digest = QMessageAuthenticationCode::hash(msg, token.toUtf8(),
+                                                              QCryptographicHash::Sha256);
+    return QString::fromLatin1(
+        digest.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals).left(22));
+}
+
+} // namespace
+
+QString issueDownloadTicket(const QString &token, const QString &path, qint64 nowMs)
+{
+    const qint64 exp = nowMs / 1000 + kTicketTtlSec;
+    return QStringLiteral("%1.%2").arg(exp).arg(ticketMac(token, exp, path));
+}
+
+bool verifyDownloadTicket(const QString &token, const QString &path, const QString &ticket,
+                          qint64 nowMs)
+{
+    if (token.isEmpty() || ticket.isEmpty())
+        return false;
+    const int dot = ticket.indexOf(QLatin1Char('.'));
+    if (dot <= 0 || dot == ticket.size() - 1)
+        return false;
+
+    bool ok = false;
+    const qint64 exp = ticket.left(dot).toLongLong(&ok);
+    if (!ok)
+        return false;
+    // 先看有效期：过期的券不该再花代价去算 MAC
+    if (nowMs / 1000 > exp)
+        return false;
+
+    return tokenEquals(ticket.mid(dot + 1).toUtf8(), ticketMac(token, exp, path).toUtf8());
 }
 
 QString makeToken()

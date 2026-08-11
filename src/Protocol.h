@@ -51,6 +51,30 @@ bool isLocalHostHeader(const QString &hostHeader);
  */
 bool originMatchesHost(const QString &origin, const QString &hostHeader);
 
+/**
+ * 短时、绑定单个路径的下载券（PROTOCOL.md §2.5）。
+ *
+ * 浏览器的 `<a href>` 带不了自定义头，这是 `?token=` 当初存在的唯一理由。
+ * 但凭证进了 URL 就会落进代理日志、浏览器历史和 Referer，所以接口不再接受它。
+ * 券顶上来：
+ *
+ *  - 它是对**某一个路径**的 MAC，只能打开那一个文件；
+ *  - 几秒就过期，链接漏出去几乎立刻作废；
+ *  - **无状态**校验，服务端不记任何已签发的券。
+ *
+ * **它不是「一次性」的。** 真一次性要服务端存一张已用 nonce 表，
+ * 而那和无状态校验直接矛盾。在它活着的那几秒里券可以被重放 ——
+ * 但只能重放同一个路径的下载，所以这笔交换划算。别在界面或文档里叫它一次性。
+ */
+inline constexpr int kTicketTtlSec = 10;
+
+/** 形如 `<exp>.<mac>`：exp 是 Unix 秒，mac 是 HMAC-SHA256 截到 132 bit 的 base64url。 */
+QString issueDownloadTicket(const QString &token, const QString &path, qint64 nowMs);
+
+/** 同时校验有效期**和**这张券是不是为这个路径签的。 */
+bool verifyDownloadTicket(const QString &token, const QString &path, const QString &ticket,
+                          qint64 nowMs);
+
 // 生成 10 位小写字母数字 token（去掉 i l o 0 1 等易混字符）
 QString makeToken();
 
