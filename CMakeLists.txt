@@ -27,6 +27,7 @@ set(AFMU_CPP
     src/Config.h              src/Config.cpp
     src/I18n.h                src/I18n.cpp
     src/Discovery.h           src/Discovery.cpp
+    src/AuthThrottle.h        src/AuthThrottle.cpp
     src/Models.h              src/Models.cpp
     src/PeerClient.h          src/PeerClient.cpp
     src/TransferModel.h       src/TransferModel.cpp

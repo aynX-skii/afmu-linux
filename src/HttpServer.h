@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AuthThrottle.h"
+
 #include <QPointer>
 #include <QStringList>
 #include <QTcpServer>
@@ -39,6 +41,9 @@ public:
 
     qint64 nextTransferId() { return ++m_transferId; }
 
+    /** token 猜错的按 IP 退避（PROTOCOL.md §2.2）。连接之间共享，故挂在服务端上。 */
+    AuthThrottle &throttle() { return m_throttle; }
+
 signals:
     /** 对端扫码之后回填自己的地址和 token（PROTOCOL.md §3.9）。 */
     void pairRequested(const QString &host, int port, const QString &token, const QString &name,
@@ -55,6 +60,7 @@ protected:
 private:
     ServerContext m_ctx;
     QPointer<AuthRequests> m_auth;
+    AuthThrottle m_throttle;
     quint16 m_port = 0;
     qint64 m_transferId = 0;
 };

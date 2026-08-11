@@ -41,7 +41,9 @@ QByteArray statusText(int code)
     case 405: return "Method Not Allowed";
     case 413: return "Payload Too Large";
     case 416: return "Range Not Satisfiable";
+    case 429: return "Too Many Requests";
     case 431: return "Request Header Fields Too Large";
+    case 500: return "Internal Server Error";
     default: return "Internal Server Error";
     }
 }
@@ -538,10 +540,31 @@ private:
         // 防滥用的那一套全在 AuthRequests 里（PROTOCOL.md §3.8）。
         if (m_path == QLatin1String("/api/authorize"))
             return handleAuthorize();
+
+        // 猜错 token 要付出代价（PROTOCOL.md §2.2）。退避期内连比对都不做 ——
+        // 比对本身是常数时间的，但「有没有走到比对」是可观测的，直接挡在门外最干净。
+        const QString peer = peerHost();
+        const qint64 now = QDateTime::currentMSecsSinceEpoch();
+        if (const int wait = m_server->throttle().retryAfterSec(peer, now); wait > 0) {
+            sendJson(429,
+                     errObj(QStringLiteral("too many failed attempts, retry in %1s").arg(wait)),
+                     {{"Retry-After", QByteArray::number(wait)}});
+            return;
+        }
         if (!authorized()) {
+            const int wait = m_server->throttle().noteFailure(peer, now);
+            if (wait > 0) {
+                emit m_server->logMessage(
+                    T(QStringLiteral("%1 连续猜错 token，暂停响应 %2 秒")).arg(peer).arg(wait));
+                sendJson(429,
+                         errObj(QStringLiteral("too many failed attempts, retry in %1s").arg(wait)),
+                         {{"Retry-After", QByteArray::number(wait)}});
+                return;
+            }
             sendJson(401, errObj(QStringLiteral("invalid or missing token")));
             return;
         }
+        m_server->throttle().noteSuccess(peer);
 
         if (m_path == QLatin1String("/api/info"))
             return handleInfo();
@@ -1275,10 +1298,14 @@ private:
         }
     }
 
-    void sendJson(int code, const QJsonObject &o)
+    void sendJson(int code, const QJsonObject &o,
+                  const QList<QPair<QByteArray, QByteArray>> &extra = {})
     {
         const QByteArray body = QJsonDocument(o).toJson(QJsonDocument::Compact);
-        sendHeaders(code, body.size(), {{"Content-Type", "application/json; charset=utf-8"}});
+        QList<QPair<QByteArray, QByteArray>> headers{
+            {"Content-Type", "application/json; charset=utf-8"}};
+        headers += extra;
+        sendHeaders(code, body.size(), headers);
         if (m_method != "HEAD")
             m_sock->write(body);
         finishResponse();
