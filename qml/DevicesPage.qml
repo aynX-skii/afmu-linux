@@ -231,9 +231,20 @@ Item {
                             tone: Theme.success
                         }
 
+                        // 加密配对排在前面，也是唯一给 Primary 的按钮：这是推荐路径。
+                        // 「请求授权」走的还是 v1 明文那套，留着是为了还没升级的对端。
+                        FlatButton {
+                            text: Tr.t("加密配对")
+                            iconName: "lock"
+                            variant: FlatButton.Variant.Subtle
+                            visible: App.tlsReady
+                            enabled: !App.authPending
+                            onClicked: App.requestPairing(host, port, name, os)
+                        }
+
                         FlatButton {
                             text: Tr.t("请求授权")
-                            iconName: "lock"
+                            iconName: "link"
                             variant: FlatButton.Variant.Subtle
                             enabled: !App.authPending
                             onClicked: App.requestAuthorization(host, port, name, os)

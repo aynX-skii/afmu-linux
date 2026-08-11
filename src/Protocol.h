@@ -74,7 +74,7 @@ QString makePairingCode();
  * hosts 是本机所有可用地址，手机扫到之后逐个试，省得用户自己挑网卡。
  */
 QString buildPairUri(const QString &name, const QString &os, const QStringList &hosts, int port,
-                     const QString &token);
+                     const QString &token, const QString &fingerprint = QString());
 
 QString humanSize(qint64 bytes);
 

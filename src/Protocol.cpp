@@ -183,20 +183,29 @@ QString makePairingCode()
 }
 
 QString buildPairUri(const QString &name, const QString &os, const QStringList &hosts, int port,
-                     const QString &token)
+                     const QString &token, const QString &fingerprint)
 {
-    if (hosts.isEmpty() || token.isEmpty())
+    // v2 的码里带指纹、**不带 token**；v1 的反过来。两者必须至少有一个，
+    // 否则扫出来的码什么都干不了。
+    const bool v2 = !fingerprint.isEmpty();
+    if (hosts.isEmpty() || (token.isEmpty() && !v2))
         return QString();
 
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("v"), QString::number(kProtocolVersion));
+    q.addQueryItem(QStringLiteral("v"), QString::number(v2 ? 2 : int(kProtocolVersion)));
     q.addQueryItem(QStringLiteral("host"), hosts.first());
     if (hosts.size() > 1) {
         // 多网卡时把候选都带上，手机逐个探，避免扫到一个连不通的地址
         q.addQueryItem(QStringLiteral("hosts"), hosts.join(QLatin1Char(',')));
     }
     q.addQueryItem(QStringLiteral("port"), QString::number(port));
-    q.addQueryItem(QStringLiteral("token"), token);
+    if (v2) {
+        // 指纹是公开信息：截图、转发、投屏都不会造成任何损失。
+        // v1 的码里那个 token 不是 —— 那才是 v2 顺手解决的一个真问题（草案 §4.1）。
+        q.addQueryItem(QStringLiteral("fp"), fingerprint);
+    } else {
+        q.addQueryItem(QStringLiteral("token"), token);
+    }
     q.addQueryItem(QStringLiteral("name"), name);
     q.addQueryItem(QStringLiteral("os"), os);
     return QLatin1String(kPairUriPrefix) + q.toString(QUrl::FullyEncoded);

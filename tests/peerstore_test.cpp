@@ -14,6 +14,7 @@
 #include "../src/Identity.h"
 #include "../src/PairSas.h"
 #include "../src/PeerStore.h"
+#include "../src/Protocol.h"
 #include "../src/ProtocolConstants.h"
 
 #include <QCoreApplication>
@@ -270,6 +271,37 @@ int main(int argc, char **argv)
             std::fprintf(stderr, "  [向量] SAS(0x88,0x11,0x33,0x44) = %s\n",
                          qPrintable(afmu::formatSas(s1)));
         }
+    }
+
+    // ------------------------------------------------------------ 配对二维码
+    {
+        const QStringList hosts{QStringLiteral("192.168.1.30"), QStringLiteral("10.42.0.1")};
+
+        // v1：码里是 token。截图 / 转发 / 投屏等于交出访问权 —— 这正是 v2 要改掉的。
+        const QString v1 = afmu::buildPairUri(QStringLiteral("ice"), QStringLiteral("linux"),
+                                              hosts, 8765, QStringLiteral("abc123xyz9"));
+        check(v1.contains(QStringLiteral("v=1")), "v1 的码标 v=1");
+        check(v1.contains(QStringLiteral("token=abc123xyz9")), "v1 的码带 token");
+        check(!v1.contains(QStringLiteral("fp=")), "v1 的码不带指纹");
+
+        // v2：码里是公钥指纹，**没有 token**。指纹本来就是公开信息，泄露不造成损失。
+        const QString v2 = afmu::buildPairUri(QStringLiteral("ice"), QStringLiteral("linux"),
+                                              hosts, 8765, QStringLiteral("abc123xyz9"), a);
+        check(v2.contains(QStringLiteral("v=2")), "v2 的码标 v=2");
+        check(v2.contains(QStringLiteral("fp=") + a), "v2 的码带完整指纹");
+        check(!v2.contains(QStringLiteral("token=")),
+              "v2 的码里绝不能有 token —— 身份是那对密钥，没有东西需要交出去");
+        check(v2.contains(QStringLiteral("hosts=")), "多网卡时带上候选地址");
+        check(v2.startsWith(QLatin1String(afmu::kPairUriPrefix)), "前缀不变，老客户端能识别出这是配对码");
+
+        // 指纹不截断：用户比对的是全长，而二维码容量在这里根本不是约束
+        check(v2.contains(a) && a.size() == 52, "指纹在码里是完整的 52 个字符");
+
+        // 没有 token 也没有指纹 = 这个码什么都干不了，不如不出
+        check(afmu::buildPairUri(QStringLiteral("ice"), QStringLiteral("linux"), hosts, 8765,
+                                 QString())
+                  .isEmpty(),
+              "既没 token 也没指纹时不出码");
     }
 
     // ------------------------------------------------------------

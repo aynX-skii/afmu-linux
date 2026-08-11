@@ -158,6 +158,36 @@ const Entry kEnglish[] = {
     {"不要在不可信网络（公共 Wi-Fi、咖啡厅）上开启服务。",
      "Do not serve on untrusted networks (public Wi-Fi, cafés)."},
 
+    // -------------------------------------------------- 配对（v2）
+    {"加密配对", "Pair securely"},
+    {"比对码", "Compare code"},
+    {"对方指纹", "Their fingerprint"},
+    {"等待对方确认配对", "Waiting for them to confirm"},
+    {"已在 %1 上弹出配对确认，请核对下面的码再点「允许」。",
+     "A pairing prompt is on %1. Check the code below matches, then tap Allow."},
+    {"这个码是本机自己算出来的，不是对方发来的 —— 所以它和对方屏幕上的一致，",
+     "This code was computed here, not sent by them — so if it matches what is on their "},
+    {"就说明中间没有人在转发。不一致就直接取消。",
+     "screen, nobody is relaying between you. If it differs, cancel."},
+    {"只有对方屏幕上显示的比对码与此**一模一样**时才点「允许」。",
+     "Only tap Allow if the compare code on their screen is exactly the same."},
+    {"不一样就说明中间有人在转发，这时候点「允许」等于把门开给他。",
+     " A different code means somebody is relaying, and allowing it opens the door to them."},
+    {"允许之后这台设备会被记进「已配对设备」，此后它的连接全程加密。",
+     "Once allowed, this device is recorded under Paired devices and its connections are "
+     "encrypted from then on."},
+    {"先选一台设备，再请求配对", "Pick a device first, then ask to pair"},
+    {"本机的加密身份不可用，无法配对", "This device has no usable identity, so pairing is off"},
+    {"配对比对码 %1，请与对端屏幕核对", "Pairing compare code %1 — check it against their screen"},
+    {"两端算出的比对码不一致，已中止 —— 这是实现问题，不是攻击",
+     "The two ends computed different compare codes; aborted. That is an implementation bug, "
+     "not an attack."},
+    {"对方拒绝了本次配对", "They declined the pairing"},
+    {"配对超时，对方没有确认", "Pairing timed out — nobody confirmed"},
+    {"对端还不支持加密配对", "That device does not support encrypted pairing yet"},
+    {"配对失败", "Pairing failed"},
+    {"已与 %1 配对", "Paired with %1"},
+
     // -------------------------------------------------- 日志 · 加密（v2）
     {"对端没有出示证书，已中止连接",
      "The other end presented no certificate; connection aborted."},

@@ -37,7 +37,7 @@ Popup {
 
         Text {
             width: parent.width
-            text: Tr.t("等待对方授权")
+            text: App.authIsPairing ? Tr.t("等待对方确认配对") : Tr.t("等待对方授权")
             font.pixelSize: Theme.fsLg
             font.bold: true
             color: Theme.text
@@ -47,7 +47,9 @@ Popup {
             width: parent.width
             text: App.authStatus === "sending"
                   ? Tr.t("正在发送请求…")
-                  : Tr.t("已在 %1 上弹出通知，请点「允许」。").arg(App.authTarget)
+                  : (App.authIsPairing
+                     ? Tr.t("已在 %1 上弹出配对确认，请核对下面的码再点「允许」。").arg(App.authTarget)
+                     : Tr.t("已在 %1 上弹出通知，请点「允许」。").arg(App.authTarget))
             font.pixelSize: Theme.fsMd
             color: Theme.textDim
             wrapMode: Text.WordWrap
@@ -67,16 +69,16 @@ Popup {
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: Tr.t("确认码")
+                    text: App.authIsPairing ? Tr.t("比对码") : Tr.t("确认码")
                     font.pixelSize: Theme.fsXs
                     color: Theme.textFaint
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: App.authCode
-                    font.pixelSize: 30
+                    text: App.authIsPairing ? App.authSas : App.authCode
+                    font.pixelSize: App.authIsPairing ? 24 : 30
                     font.family: Theme.mono
-                    font.letterSpacing: 6
+                    font.letterSpacing: App.authIsPairing ? 3 : 6
                     color: Theme.accent
                 }
             }
@@ -84,7 +86,10 @@ Popup {
 
         Text {
             width: parent.width
-            text: Tr.t("对方屏幕上显示的确认码必须和这里一致，否则不要同意。")
+            text: App.authIsPairing
+                  ? Tr.t("这个码是本机自己算出来的，不是对方发来的 —— 所以它和对方屏幕上的一致，")
+                    + Tr.t("就说明中间没有人在转发。不一致就直接取消。")
+                  : Tr.t("对方屏幕上显示的确认码必须和这里一致，否则不要同意。")
             font.pixelSize: Theme.fsXs
             color: Theme.textFaint
             wrapMode: Text.WordWrap

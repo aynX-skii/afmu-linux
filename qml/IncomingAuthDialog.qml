@@ -83,25 +83,53 @@ Popup {
 
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: Tr.t("确认码")
+                    text: App.incomingAuthIsPairing ? Tr.t("比对码") : Tr.t("确认码")
                     font.pixelSize: Theme.fsXs
                     color: Theme.textFaint
                 }
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: App.incomingAuthCode
-                    font.pixelSize: 30
+                    text: App.incomingAuthIsPairing ? App.incomingAuthSas : App.incomingAuthCode
+                    // SAS 是 9 个字符（XXXX-XXXX），4 位确认码放得下的字号它放不下
+                    font.pixelSize: App.incomingAuthIsPairing ? 24 : 30
                     font.family: Theme.mono
-                    font.letterSpacing: 6
+                    font.letterSpacing: App.incomingAuthIsPairing ? 3 : 6
                     color: Theme.accent
                 }
             }
         }
 
+        // 配对请求：对端指纹要显示出来。用户比对的主要是比对码，但指纹是那台设备
+        // 从此以后的身份，写进配对表的就是它 —— 值得让人看见自己在信什么。
+        Column {
+            width: parent.width
+            spacing: 2
+            visible: App.incomingAuthIsPairing
+
+            Text {
+                text: Tr.t("对方指纹")
+                font.pixelSize: Theme.fsXs
+                color: Theme.textFaint
+            }
+            Text {
+                width: parent.width
+                text: App.incomingAuthFingerprint
+                font.pixelSize: Theme.fsXs
+                font.family: Theme.mono
+                color: Theme.textDim
+                wrapMode: Text.WrapAnywhere
+            }
+        }
+
         Text {
             width: parent.width
-            text: Tr.t("只有对方屏幕上显示的确认码与此相同时才点「允许」。")
-                  + Tr.t("允许之后本机的 token 会交给它，它就能浏览、上传和拉取本机共享的目录。")
+            text: App.incomingAuthIsPairing
+                  ? Tr.t("只有对方屏幕上显示的比对码与此**一模一样**时才点「允许」。")
+                    + Tr.t("不一样就说明中间有人在转发，这时候点「允许」等于把门开给他。")
+                    + "\n"
+                    + Tr.t("允许之后这台设备会被记进「已配对设备」，此后它的连接全程加密。")
+                  : Tr.t("只有对方屏幕上显示的确认码与此相同时才点「允许」。")
+                    + Tr.t("允许之后本机的 token 会交给它，它就能浏览、上传和拉取本机共享的目录。")
             font.pixelSize: Theme.fsXs
             color: Theme.textFaint
             wrapMode: Text.WordWrap

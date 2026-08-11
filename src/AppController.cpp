@@ -823,9 +823,13 @@ void AppController::pushPairBack()
 
 QString AppController::pairUri() const
 {
+    // 能走 v2 就出 v2 的码 —— 里面是公钥指纹，泄露它不造成任何损失。
+    // 加密不可用时才退回 v1（码里是 token，截图就等于交出访问权）。
+    const QString fp = m_server->tlsReady() && m_identity ? m_identity->fingerprintBase32()
+                                                          : QString();
     return afmu::buildPairUri(m_config->deviceName(), QStringLiteral("linux"), localAddresses(),
                               serverRunning() ? serverPort() : m_config->serverPort(),
-                              m_config->localToken());
+                              m_config->localToken(), fp);
 }
 
 void AppController::fetchInfo()

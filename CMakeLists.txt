@@ -133,9 +133,12 @@ if(AFMU_TESTS)
         src/Identity.h   src/Identity.cpp
         src/JsonFile.h   src/JsonFile.cpp
         src/PairSas.h    src/PairSas.cpp
+        src/Protocol.h   src/Protocol.cpp
     )
     target_include_directories(afmu_peerstore_test PRIVATE src)
-    target_link_libraries(afmu_peerstore_test PRIVATE Qt6::Core OpenSSL::Crypto)
+    # Protocol.cpp 用到 QHostAddress（Host 白名单那一段），所以多一个 Qt6::Network。
+    # 仍然没有引入任何 apt 之外的新依赖。
+    target_link_libraries(afmu_peerstore_test PRIVATE Qt6::Core Qt6::Network OpenSSL::Crypto)
 
     enable_testing()
     add_test(NAME peerstore COMMAND afmu_peerstore_test)
