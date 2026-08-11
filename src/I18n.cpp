@@ -159,6 +159,17 @@ const Entry kEnglish[] = {
      "Do not serve on untrusted networks (public Wi-Fi, cafés)."},
 
     // -------------------------------------------------- 日志 · 加密（v2）
+    {"对端没有出示证书，已中止连接",
+     "The other end presented no certificate; connection aborted."},
+    {"指纹不匹配，已中止连接。期望 %1，实际 %2",
+     "Fingerprint mismatch; connection aborted. Expected %1, got %2"},
+    {"这不是你配对的那台设备，已中止连接",
+     "This is not the device you paired with. Connection aborted."},
+    {"连接已中止", "Connection aborted"},
+    {"加密握手失败 —— 对端可能还没升级到加密连接，",
+     "Encrypted handshake failed — the other end may not support encryption yet, "},
+    {"或者本机的身份没被它认可", "or it does not recognise this device's identity"},
+    {"已通过加密连接（%1）", "Encrypted connection (%1)"},
     {"本机指纹 %1", "This device's fingerprint: %1"},
     {"本机身份可用，但 TLS 没能就绪，只能走明文",
      "Identity is usable but TLS did not come up; plaintext only."},

@@ -215,6 +215,17 @@ PeerRecord PeerStore::find(const QString &fp) const
     return i >= 0 ? m_items.at(i) : PeerRecord{};
 }
 
+PeerRecord PeerStore::findByAddressHint(const QString &host, int port) const
+{
+    if (host.isEmpty())
+        return {};
+    for (const PeerRecord &r : m_items) {
+        if (r.lastHost == host && (port <= 0 || r.lastPort == port))
+            return r;
+    }
+    return {};
+}
+
 bool PeerStore::upsert(const PeerRecord &in)
 {
     PeerRecord r = in;

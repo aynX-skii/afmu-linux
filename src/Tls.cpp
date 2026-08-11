@@ -24,7 +24,17 @@ QSslConfiguration baseConfiguration(const Identity &id)
     // 校验不靠 TLS 栈，靠握手完成后手工比对指纹。QueryPeer 的意思是
     // 「要对方的证书，但别替我判断它可不可信」—— 判断是我们自己的事。
     cfg.setPeerVerifyMode(QSslSocket::QueryPeer);
-    cfg.setAllowedNextProtocols({QByteArray(kTlsAlpn)});
+    // ALPN 里必须同时留着 http/1.1，原因是实测出来的，不是设计选择：
+    //
+    // **QNetworkAccessManager 会覆盖掉请求里设的 ALPN**，自己提 {h2, http/1.1}。
+    // 只提 afmu/2 的话，我们自己的客户端第一个连不上（实测 BAD_EXTENSION）。
+    // 而且服务端这边只留 http/1.1 还有个额外好处：QNAM 默认允许 HTTP/2，
+    // 由服务端在 ALPN 阶段把它挡掉，比在客户端逐个请求关 Http2Allowed 可靠 ——
+    // 后者实测会让握手直接卡住。
+    //
+    // 代价是 ALPN 在这里**不是安全边界**：随便一个 HTTPS 客户端都能握上手。
+    // 挡住它的从来不是 ALPN 而是钉扎 —— 没有已配对的客户端证书，握完也进不去。
+    cfg.setAllowedNextProtocols({QByteArray(kTlsAlpn), QByteArrayLiteral("http/1.1")});
     return cfg;
 }
 

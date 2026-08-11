@@ -60,6 +60,7 @@ AppController::AppController(QObject *parent)
     m_identity = std::make_unique<afmu::Identity>();
     if (m_identity->ensure(QDir(configDir).filePath(QStringLiteral("identity.pem")))) {
         m_server->setIdentity(m_identity.get(), m_peers);
+        m_client->setIdentity(m_identity.get(), m_peers);
         appendLog(m_server->tlsReady()
                       ? T(QStringLiteral("本机指纹 %1")).arg(m_identity->fingerprintDisplay())
                       : T(QStringLiteral("本机身份可用，但 TLS 没能就绪，只能走明文")));
@@ -112,6 +113,18 @@ AppController::AppController(QObject *parent)
         applyServerContext();
         emit pairUriChanged();
     });
+
+    // 连上的不是配对表里那台。这是钉扎唯一会对用户可见的时刻，所以话要说明白：
+    // 不是"证书有问题"，是"这不是你配对的那台设备"。
+    connect(m_client, &PeerClient::pinningFailed, this,
+            [this](const QString &expected, const QString &actual) {
+                appendLog(actual.isEmpty()
+                              ? T(QStringLiteral("对端没有出示证书，已中止连接"))
+                              : T(QStringLiteral("指纹不匹配，已中止连接。期望 %1，实际 %2"))
+                                    .arg(afmu::Identity::group(expected),
+                                         afmu::Identity::group(actual)));
+                notify(T(QStringLiteral("这不是你配对的那台设备，已中止连接")), true);
+            });
 
     connect(m_server, &HttpServer::logMessage, this, &AppController::appendLog);
     connect(m_server, &HttpServer::portChanged, this, [this] {
