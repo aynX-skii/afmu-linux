@@ -35,6 +35,7 @@ set(AFMU_CPP
     src/Config.h              src/Config.cpp
     src/Identity.h            src/Identity.cpp
     src/Tls.h                 src/Tls.cpp
+    src/PairSas.h             src/PairSas.cpp
     src/PeerStore.h           src/PeerStore.cpp
     src/I18n.h                src/I18n.cpp
     src/Discovery.h           src/Discovery.cpp
@@ -131,6 +132,7 @@ if(AFMU_TESTS)
         src/PeerStore.h  src/PeerStore.cpp
         src/Identity.h   src/Identity.cpp
         src/JsonFile.h   src/JsonFile.cpp
+        src/PairSas.h    src/PairSas.cpp
     )
     target_include_directories(afmu_peerstore_test PRIVATE src)
     target_link_libraries(afmu_peerstore_test PRIVATE Qt6::Core OpenSSL::Crypto)

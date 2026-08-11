@@ -12,6 +12,7 @@
  */
 
 #include "../src/Identity.h"
+#include "../src/PairSas.h"
 #include "../src/PeerStore.h"
 #include "../src/ProtocolConstants.h"
 
@@ -222,6 +223,53 @@ int main(int argc, char **argv)
         check(left.size() == 1, "原文件应当被改名留底");
         check(readAll(QDir(tmp.path()).filePath(left.value(0))).contains(QStringLiteral("这不是数组")),
               "留底的应当是原来的内容");
+    }
+
+    // ------------------------------------------------------------ SAS
+    //
+    // 这几条同时是**给 Android 端用的测试向量**：两端算出来必须一模一样，
+    // 不一样的表现是"两个屏幕上的码对不上"，而用户唯一合理的反应是
+    // 认为自己正在被攻击 —— 一个编码 bug 会被读成一次安全事件。
+    {
+        const QByteArray fp1(32, '\x11');
+        const QByteArray fp2(32, '\x22');
+        const QByteArray na(32, '\x33');
+        const QByteArray nb(32, '\x44');
+
+        const QString sas = afmu::computeSas(fp1, fp2, na, nb);
+        check(sas.size() == 8, "SAS 是 8 个字符");
+        check(afmu::formatSas(sas).size() == 9, "展示形式是 XXXX-XXXX");
+        std::fprintf(stderr, "  [向量] SAS(0x11,0x22,0x33,0x44) = %s\n",
+                     qPrintable(afmu::formatSas(sas)));
+
+        // 谁是客户端不该影响结果 —— 否则两端各算各的，用户看到两个不同的码
+        check(afmu::computeSas(fp2, fp1, na, nb) == sas, "指纹顺序不影响结果");
+
+        // 随机数的角色是固定的，交换它们必须是另一个值：排序会白丢一半绑定强度
+        check(afmu::computeSas(fp1, fp2, nb, na) != sas, "随机数不参与排序");
+
+        // 任何一位变了，码就得变 —— 这正是它能起作用的原因
+        QByteArray na2 = na;
+        na2[31] = na2.at(31) ^ 0x01;
+        check(afmu::computeSas(fp1, fp2, na2, nb) != sas, "随机数变一位，码就变");
+
+        // 长度不对必须返回空，而不是凑一个看起来正常的码
+        check(afmu::computeSas(fp1.left(31), fp2, na, nb).isEmpty(), "指纹长度不对返回空");
+        check(afmu::computeSas(fp1, fp2, na.left(16), nb).isEmpty(), "随机数长度不对返回空");
+        check(afmu::computeSas(fp1, fp1, na, nb).isEmpty(), "两个指纹相同必须拒绝");
+
+        // 排序必须按**无符号**比。0x88 当有符号字节是负数，于是一半的指纹对会被
+        // 两端排成相反的顺序 —— 那是个"测试时好好的、装到用户手上一半设备对不上"
+        // 的 bug，而症状是两个屏幕显示不同的码，用户只会理解成正在被攻击。
+        {
+            const QByteArray high(32, '\x88'); // 有符号看是 -120，无符号看是 136
+            const QByteArray low(32, '\x11');
+            const QString s1 = afmu::computeSas(high, low, na, nb);
+            const QString s2 = afmu::computeSas(low, high, na, nb);
+            check(!s1.isEmpty() && s1 == s2, "高位字节的指纹也要两端一致");
+            std::fprintf(stderr, "  [向量] SAS(0x88,0x11,0x33,0x44) = %s\n",
+                         qPrintable(afmu::formatSas(s1)));
+        }
     }
 
     // ------------------------------------------------------------
