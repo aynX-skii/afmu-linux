@@ -39,6 +39,12 @@ AppController::AppController(QObject *parent)
     // I18n 还没就位的话 T() 只能退回中文原文
     m_i18n = new I18n(m_config, this);
 
+    // 配置读不出来是**很要紧**的事：token 会跟着变成新的，所有已配对设备一起连不上。
+    // 以前这种情况是静默重置，用户只能看到「怎么全变回默认了」。现在至少说出来，
+    // 并告诉他原文件留在哪 —— token 还能从那里抠回来。
+    if (!m_config->loadError().isEmpty())
+        appendLog(m_config->loadError());
+
     m_transfers = new TransferModel(m_client, m_config, this);
     m_client->setToken(m_config->peerToken());
 

@@ -65,6 +65,16 @@ public:
     Q_INVOKABLE void removeServeRoot(const QString &path);
     Q_INVOKABLE QString configFilePath() const;
 
+    /**
+     * 上次加载出的问题，为空表示一切正常。
+     *
+     * 配置文件在但读不出来（崩溃时写了一半、磁盘满、手改打错）时，**不能**
+     * 原地覆盖成默认值 —— 那会让 token 和 serveRoots 无声消失，用户只会发现
+     * 「怎么全变回默认了」，而 token 一变所有设备一起连不上。
+     * 这里给出原因和留底路径，由界面/日志告诉用户。
+     */
+    QString loadError() const { return m_loadError; }
+
 signals:
     void changed();
 
@@ -74,4 +84,7 @@ private:
 
     QJsonObject m_json;
     QString m_path;
+    QString m_loadError;
+    /** 原文件读不出来又备份不掉时置位：宁可不写，也不覆盖可能还能救的 token。 */
+    bool m_readOnlyFallback = false;
 };
