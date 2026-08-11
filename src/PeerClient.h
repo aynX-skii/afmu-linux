@@ -26,7 +26,7 @@ public:
     void setToken(const QString &token);
 
     /**
-     * 打开 v2（PROTOCOL-v2-DRAFT.md §5）：本机身份 + 配对表。
+     * 打开 v2（PROTOCOL.md v2 §5）：本机身份 + 配对表。
      * 两个都给齐才算数 —— 有身份没配对表的话没有东西可钉，那等于没校验。
      */
     void setIdentity(const afmu::Identity *id, PeerStore *peers);

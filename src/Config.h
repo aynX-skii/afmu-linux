@@ -42,7 +42,7 @@ public:
     bool readOnly() const;
     bool autoStartServer() const;
     bool allowAuthRequests() const;
-    /** 允许未加密的 v1 连接（PROTOCOL-v2-DRAFT.md §8.1）。见 setter 处的说明。 */
+    /** 允许未加密的 v1 连接（PROTOCOL.md v2 §8.1）。见 setter 处的说明。 */
     bool allowLegacyPlaintext() const;
 
     /**

@@ -797,7 +797,7 @@ private:
     }
 
     /**
-     * v2 配对握手（PROTOCOL-v2-DRAFT.md §4.2.3）。未钉扎的 TLS 连接只能碰这一个接口。
+     * v2 配对握手（PROTOCOL.md v2 §4.2.3）。未钉扎的 TLS 连接只能碰这一个接口。
      *
      * 三步：`step=commit` 登记并拿到 `nb`，`step=reveal` 揭示 `na` 并得到 SAS，
      * `GET ?session=` 轮询用户的决定。

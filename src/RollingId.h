@@ -4,7 +4,7 @@
 #include <QString>
 
 /**
- * 发现应答里的滚动标识 `rid`（PROTOCOL-v2-DRAFT.md §6.1）。
+ * 发现应答里的滚动标识 `rid`（PROTOCOL.md v2 §6.1）。
  *
  * ```
  * rid = hex( SHA-256( "AFMU-RID-v2" || fp || 十进制ASCII(floor(unix_time / 300)) )[0:4] )

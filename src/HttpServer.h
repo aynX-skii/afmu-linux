@@ -49,7 +49,7 @@ public:
     AuthRequests *authRequests() const { return m_auth; }
 
     /**
-     * 打开 v2：本机身份 + 配对表（PROTOCOL-v2-DRAFT.md §5）。
+     * 打开 v2：本机身份 + 配对表（PROTOCOL.md v2 §5）。
      *
      * 两个都给齐才算就绪 —— 有身份没配对表的话，握手能成但没有东西可比对，
      * 那等于 `VerifyNone`，是这一层最不该出现的状态。
@@ -67,8 +67,8 @@ public:
      * 关掉之后，首字节不是 `0x16` 的连接**直接断开，不回任何 HTTP 报文** ——
      * 零信任模式下这个端口在效果上只听 TLS。
      *
-     * 现在默认开着：v2 的握手才刚落地，客户端一侧还没接（§12 第 4–6 步），
-     * 关掉等于本机谁也连不上。按 §8.2 的路线，它在第 3 阶段才翻成默认关。
+     * 现在默认开着：两端的 v2 都跑通了，但用户手上还有旧版本。
+     * 按 §8.2 的路线，它在第 3 阶段才翻成默认关。
      */
     void setAllowLegacyPlaintext(bool on) { m_allowLegacy = on; }
     bool allowLegacyPlaintext() const { return m_allowLegacy; }

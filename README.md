@@ -8,7 +8,7 @@ FileBridge 的 Linux 桌面客户端：Qt 6 + Qt Quick，暗黑扁平风，标�
 - **客户端**：发现设备 → 浏览手机目录 → 下载（带断点续传）/ 上传
 - **服务端**：本机开同协议的 HTTP 服务，手机可以直接把文件推过来
 
-v2（双向 TLS + 指纹钉扎，见 `AndroidFileManagerUtils/docs/PROTOCOL-v2-DRAFT.md`）
+v2（双向 TLS + 指纹钉扎，见 `AndroidFileManagerUtils/docs/PROTOCOL.md` 第二部分）
 正在分步落地：**Linux ↔ Linux 已经能全程走加密**，和手机之间还是 v1 明文
 （Android 一侧还没做）。
 

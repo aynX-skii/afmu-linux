@@ -118,7 +118,7 @@ int main(int argc, char **argv)
 
         const qint64 firstPairedAt = s.find(a).pairedAt;
 
-        // 换 IP 不是换设备（草案 §13 问题 3）
+        // 换 IP 不是换设备（v2 §13 问题 3）
         s.noteSeen(a, QStringLiteral("10.0.0.7"), 9000);
         check(s.rowCount() == 1, "换地址不该多出一条记录");
         check(s.find(a).lastHost == QStringLiteral("10.0.0.7"), "地址提示应当更新");

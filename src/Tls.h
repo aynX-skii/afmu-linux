@@ -11,7 +11,7 @@ namespace afmu {
 class Identity;
 
 /**
- * v2 的 TLS 配置（PROTOCOL-v2-DRAFT.md §5）。服务端和客户端共用一份，只差校验模式。
+ * v2 的 TLS 配置（PROTOCOL.md v2 §5）。服务端和客户端共用一份，只差校验模式。
  *
  * 几个选择的理由，改之前先读：
  *

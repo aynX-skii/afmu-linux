@@ -5,7 +5,7 @@
 
 /**
  * 短认证串（SAS）—— 没有二维码时，用户靠它确认中间没有人
- * （PROTOCOL-v2-DRAFT.md §4.2.2）。
+ * （PROTOCOL.md v2 §4.2.2）。
  *
  * ```
  * sas = base32( SHA-256( "AFMU-SAS-v2" || min(fp_a,fp_b) || max(fp_a,fp_b) || n_a || n_b ) )[0:8]

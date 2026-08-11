@@ -69,7 +69,7 @@ void PeerClient::checkPinning(QNetworkReply *reply)
     }
 
     if (actual == m_expectedFp) {
-        // 地址只是提示，但既然这次确实在这儿连上了，把提示更新一下（§13 问题 3）
+        // 地址只是提示，但既然这次确实在这儿连上了，把提示更新一下（v2 §13 问题 3）
         if (m_peers)
             m_peers->noteSeen(actual, m_host, m_port);
         return;

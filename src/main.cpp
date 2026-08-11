@@ -22,7 +22,7 @@ namespace {
 /**
  * `afmu --fingerprint` —— 打印本机 v2 身份的 SPKI 指纹，没有就先生成。
  *
- * 这不只是给用户看的。PROTOCOL-v2-DRAFT.md §12 第 1 步要求两端做完身份层
+ * 这不只是给用户看的。PROTOCOL.md v2 §12 第 1 步要求两端做完身份层
  * 之后**立刻交叉验证指纹**：这里打印的值必须和下面这条命令的输出一致 ——
  *
  *   openssl x509 -in ~/.config/afmu/identity.pem -pubkey -noout \

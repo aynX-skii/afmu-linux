@@ -254,9 +254,9 @@ const Entry kEnglish[] = {
      "entirely."},
     {"已配对设备", "Paired devices"},
     {"台", "devices"},
-    {"还没有配对过的设备。加密连接（协议 v2）启用后，配对成功的设备会出现在这里。",
-     "No paired devices yet. Once encrypted connections (protocol v2) are on, devices you "
-     "pair with appear here."},
+    {"还没有配对过的设备。扫码或点「加密配对」之后，配对成功的设备会出现在这里。",
+     "No paired devices yet. Scan a code or tap Encrypted pairing, and devices you pair with "
+     "appear here."},
     {"配对关系不会自动过期 —— 半年没用的设备下次还能直接连。要清理只能在这里手动解除。",
      "Pairings never expire on their own — a device you have not used in months still "
      "connects. Clearing one is manual, here."},

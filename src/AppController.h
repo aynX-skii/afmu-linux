@@ -35,7 +35,7 @@ class AppController : public QObject
     Q_PROPERTY(QObject *devices READ devicesObj CONSTANT)
     Q_PROPERTY(QObject *files READ filesObj CONSTANT)
     Q_PROPERTY(QObject *transfers READ transfersObj CONSTANT)
-    // 配对表：v2 的授权依据（PROTOCOL-v2-DRAFT.md §4.3）。v2 握手还没接上，
+    // 配对表：v2 的授权依据（PROTOCOL.md v2 §4.3）。v2 握手还没接上，
     // 所以现在只有「看和删」有意义 —— 但删除入口必须先于写入存在，
     // 否则第一次写进去的东西用户就拿不掉了。
     Q_PROPERTY(QObject *peers READ peersObj CONSTANT)
@@ -63,7 +63,7 @@ class AppController : public QObject
     Q_PROPERTY(QStringList localAddresses READ localAddresses NOTIFY serverChanged)
     Q_PROPERTY(QStringList serverLog READ serverLog NOTIFY serverLogChanged)
 
-    // 加密连接（PROTOCOL-v2-DRAFT.md §3/§5）。指纹是本机的身份，要给用户看、
+    // 加密连接（PROTOCOL.md v2 §3/§5）。指纹是本机的身份，要给用户看、
     // 让他拿去跟对端屏幕上的比 —— 所以是展示形式（每 5 个字符一组）的全长。
     Q_PROPERTY(QString localFingerprint READ localFingerprint CONSTANT)
     Q_PROPERTY(bool tlsReady READ tlsReady NOTIFY serverChanged)

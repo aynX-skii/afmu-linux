@@ -65,9 +65,9 @@ void Config::load()
     ensure(QStringLiteral("autoStartServer"), true);
     // 默认开着：没有 token 的设备靠它来敲门，关掉之后只剩手抄 token / 扫码两条路
     ensure(QStringLiteral("allowAuthRequests"), true);
-    // 默认开着，而草案 §8.1 写的是默认关 —— 那是 §8.2 第 3 阶段的事。
-    // 现在 v2 客户端还没做（§12 第 4–6 步），关掉等于本机谁也连不上，
-    // 包括手机上正在用的 v1 App。等两端的 v2 客户端都跑通了再翻默认值。
+    // 默认开着，而 v2 §8.1 写的是默认关 —— 那是 §8.2 第 3 阶段的事。
+    // 两端的 v2 都跑通了，但用户手上还有旧版本，现在翻默认值等于让他们突然连不上。
+    // 等旧版本换得差不多了再翻。
     ensure(QStringLiteral("allowLegacyPlaintext"), true);
     // 零信任模式（草案 §9）：打开之后只认配对表里的设备，访客模式一并强制关闭。
     ensure(QStringLiteral("zeroTrustMode"), false);

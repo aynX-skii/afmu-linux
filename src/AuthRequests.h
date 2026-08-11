@@ -40,7 +40,7 @@ public:
         qint64 createdAt = 0;
         Status status = Status::Pending;
 
-        // ---- v2 配对（PROTOCOL-v2-DRAFT.md §4.2.3）。v1 请求里这几项都是空的。
+        // ---- v2 配对（PROTOCOL.md v2 §4.2.3）。v1 请求里这几项都是空的。
 
         /** 对端的 SPKI 指纹，取自 TLS 握手 —— **不是**请求里自己报的。非空即 v2。 */
         QString peerFp;

@@ -262,7 +262,7 @@ QString Discovery::noteIdentified(const QString &fp, const QString &host, int po
         *name = r.name;
     if (os && os->isEmpty() && !r.os.isEmpty())
         *os = r.os;
-    // 换了 IP 也认得出来，正是 rid 存在的理由之一（草案 §13 问题 3）。
+    // 换了 IP 也认得出来，正是 rid 存在的理由之一（v2 §13 问题 3）。
     // 刷新提示之后，下次连接就能直接找到该钉哪个指纹。
     m_peers->noteSeen(fp, host, port);
     return fp;

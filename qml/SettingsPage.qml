@@ -397,8 +397,8 @@ Item {
             // ------------------------------------------------------ 已配对设备（v2）
             //
             // 这张表在 v2 里就是访问控制列表：里面有指纹的设备才握得上 TLS。
-            // 写入要等 §12 第 3–6 步的握手接上，但**删除入口必须先存在** ——
-            // 否则第一次写进去的东西用户就拿不掉了，而那是一道开着的门。
+            // 删除入口比写入入口先落地，是有意的顺序 —— 否则第一次写进去的东西
+            // 用户就拿不掉了，而那是一道开着的门。
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: peersCol.implicitHeight + 2 * Theme.pad
@@ -426,7 +426,7 @@ Item {
                     Text {
                         Layout.fillWidth: true
                         visible: App.peers.count === 0
-                        text: Tr.t("还没有配对过的设备。加密连接（协议 v2）启用后，配对成功的设备会出现在这里。")
+                        text: Tr.t("还没有配对过的设备。扫码或点「加密配对」之后，配对成功的设备会出现在这里。")
                         font.pixelSize: Theme.fsSm
                         color: Theme.textFaint
                         wrapMode: Text.WordWrap
