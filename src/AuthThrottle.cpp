@@ -43,7 +43,7 @@ void AuthThrottle::sweep(qint64 nowMs)
 {
     for (auto it = m_entries.begin(); it != m_entries.end();) {
         // 只看最后一次失败：还在封禁中的条目一定也在遗忘窗口内
-        if (nowMs - it->lastFail > afmu::kAuthFailForgetMs)
+        if (nowMs - it->lastFail > qint64(afmu::kAuthFailForgetSec) * 1000)
             it = m_entries.erase(it);
         else
             ++it;

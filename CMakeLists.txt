@@ -21,6 +21,8 @@ qt_standard_project_setup(REQUIRES 6.5)
 
 set(AFMU_CPP
     src/main.cpp
+    # 由 AndroidFileManagerUtils/tools/gen_constants.py 生成，别手改
+    src/ProtocolConstants.h
     src/Protocol.h            src/Protocol.cpp
     src/QrCode.h              src/QrCode.cpp
     src/PathSafety.h          src/PathSafety.cpp

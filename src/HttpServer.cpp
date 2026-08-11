@@ -27,7 +27,7 @@ namespace {
 
 const qint64 kChunkSize = 64 * 1024;
 const qint64 kWriteHighWater = 1024 * 1024;
-const int kIdleTimeoutMs = 120 * 1000; // 服务端 socket 超时 120 秒
+const int kIdleTimeoutMs = afmu::kSocketTimeoutSec * 1000; // PROTOCOL.md §2.3
 
 QByteArray statusText(int code)
 {

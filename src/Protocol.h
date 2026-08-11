@@ -1,30 +1,14 @@
 #pragma once
 
+// 两端共享的常量都在这里，由 AndroidFileManagerUtils/docs/constants.json 生成。
+// 别在本文件里再定义一份 —— 那正是之前靠注释互指同步、迟早会漂掉的做法。
+#include "ProtocolConstants.h"
+
 #include <QByteArray>
 #include <QString>
 
-// 协议常量，严格对应 docs/PROTOCOL.md v1
+// 协议辅助函数，严格对应 docs/PROTOCOL.md v1
 namespace afmu {
-
-inline constexpr int kProtocolVersion = 1;
-inline constexpr quint16 kDiscoveryPort = 8766;
-inline constexpr quint16 kDefaultHttpPort = 8765;
-
-inline const char *const kProbePrefix = "AFMU-DISCOVER";
-inline const char *const kProbePayload = "AFMU-DISCOVER/1\n";
-
-inline const char *const kTokenHeader = "X-AFMU-Token";
-inline const char *const kPartSuffix = ".afmu-part";
-
-// 二维码载荷（PROTOCOL.md §5）：afmu://pair?v=1&host=…&port=…&token=…
-inline const char *const kPairUriPrefix = "afmu://pair?";
-
-// 授权连接（PROTOCOL.md §3.8）的等待上限，两端必须一致，否则会出现
-// 一端还在轮询、另一端已经把请求丢掉的窗口
-inline constexpr int kAuthTimeoutSec = 60;
-
-// 配对模式的持续时间（PROTOCOL.md §1.5）。两端一致，纯粹为了行为可预期
-inline constexpr int kPairingModeSec = 60;
 
 // 常数时间比较，避免用 == 泄露前缀信息
 bool tokenEquals(const QByteArray &a, const QByteArray &b);
@@ -68,8 +52,9 @@ bool originMatchesHost(const QString &origin, const QString &hostHeader);
  * **它不是「一次性」的。** 真一次性要服务端存一张已用 nonce 表，
  * 而那和无状态校验直接矛盾。在它活着的那几秒里券可以被重放 ——
  * 但只能重放同一个路径的下载，所以这笔交换划算。别在界面或文档里叫它一次性。
+ *
+ * 时长、MAC 截断长度、域分隔前缀都在生成的 ProtocolConstants.h 里。
  */
-inline constexpr int kTicketTtlSec = 10;
 
 /** 形如 `<exp>.<mac>`：exp 是 Unix 秒，mac 是 HMAC-SHA256 截到 132 bit 的 base64url。 */
 QString issueDownloadTicket(const QString &token, const QString &path, qint64 nowMs);

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ProtocolConstants.h"
+
 #include <QHash>
 #include <QString>
 
@@ -13,19 +15,10 @@
  * 惩罚是**立即回 429**，不是 sleep：服务端跑在单个事件循环里，
  * 睡一下等于全站停摆，而那正是攻击者想要的。
  *
- * 参数必须和 Android 端 Throttle.kt 完全一致，否则两端在同一个网络里
- * 表现不同，排查时会以为是网络问题。
+ * 参数（kAuthFailGrace / kAuthBackoffMaxSec / kAuthFailForgetSec）在生成的
+ * ProtocolConstants.h 里，和 Android 端出自同一份 docs/constants.json ——
+ * 不再靠注释互指来保证一致。
  */
-namespace afmu {
-
-// 前 N 次失败不惩罚：token 是手抄的，打错很正常
-inline constexpr int kAuthFailGrace = 5;
-// 退避上限，避免一次误操作把自己锁死太久
-inline constexpr int kAuthBackoffMaxSec = 60;
-// 这么久没有新的失败就把记录忘掉
-inline constexpr qint64 kAuthFailForgetMs = 15 * 60 * 1000;
-
-} // namespace afmu
 
 class AuthThrottle
 {

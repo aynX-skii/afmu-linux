@@ -7,29 +7,31 @@
 
 namespace {
 
-// 和 Android 端 AuthRequests 的常量一一对应，两边必须一致
-constexpr qint64 kTimeoutMs = qint64(afmu::kAuthTimeoutSec) * 1000;
-// 请求方一秒轮询一次；结果多留一会儿，最后一刻做的决定也能被取走
-constexpr qint64 kResultRetentionMs = kTimeoutMs + 30 * 1000;
+// 秒 → 毫秒。取值本身在生成的 ProtocolConstants.h 里，和 Android 端出自
+// 同一份 docs/constants.json，这里只做单位换算，不再各写一份数字。
+constexpr qint64 sec(int s) { return qint64(s) * 1000; }
 
-// 单地址被拒后的冷却，按拒绝次数翻倍：60s → 2min → 4min → … 封顶 30 分钟。
-// 固定 60 秒挡不住有耐心的人：拒绝、等一分钟、再来，可以一直弹下去。
-constexpr qint64 kDenyCooldownMs = 60 * 1000;
-constexpr qint64 kDenyCooldownMaxMs = 30 * 60 * 1000;
+constexpr qint64 kTimeoutMs = sec(afmu::kAuthTimeoutSec);
+// 请求方一秒轮询一次；结果多留一会儿，最后一刻做的决定也能被取走
+constexpr qint64 kResultRetentionMs = kTimeoutMs + sec(afmu::kAuthResultRetentionExtraSec);
+
+// 单地址被拒后的冷却，按拒绝次数翻倍。固定 60 秒挡不住有耐心的人：
+// 拒绝、等一分钟、再来，可以一直弹下去。
+constexpr qint64 kDenyCooldownMs = sec(afmu::kDenyCooldownSec);
+constexpr qint64 kDenyCooldownMaxMs = sec(afmu::kDenyCooldownMaxSec);
 
 // 超时按软拒绝算：对方确实没做错什么，但「发了就挂机等超时」同样能一分钟弹一次，
 // 所以给一个不升级的基础冷却。
-constexpr qint64 kTimeoutCooldownMs = 60 * 1000;
+constexpr qint64 kTimeoutCooldownMs = sec(afmu::kTimeoutCooldownSec);
 
 // 全局冷却 —— A3 的重点。上面两条都是按地址算的，而局域网里换个地址是零成本的事，
-// 于是单靠按地址冷却挡不住刷屏。这一条不看是谁：只要连续被拒/超时，
-// **所有**地址都要等，10s → 20s → 40s → … 封顶 5 分钟。
+// 于是单靠按地址冷却挡不住刷屏。这一条不看是谁：只要连续被拒/超时，**所有**地址都要等。
 // 用户点一次「允许」就清零，所以正常使用完全感觉不到。
-constexpr qint64 kGlobalCooldownMs = 10 * 1000;
-constexpr qint64 kGlobalCooldownMaxMs = 5 * 60 * 1000;
+constexpr qint64 kGlobalCooldownMs = sec(afmu::kGlobalCooldownSec);
+constexpr qint64 kGlobalCooldownMaxMs = sec(afmu::kGlobalCooldownMaxSec);
 
 // 这么久没有新的拒绝就把计数忘掉，别让一次误操作留一整天
-constexpr qint64 kRefusalForgetMs = 30 * 60 * 1000;
+constexpr qint64 kRefusalForgetMs = sec(afmu::kRefusalForgetSec);
 
 // n 次拒绝对应的冷却：base * 2^(n-1)，封顶 cap
 qint64 backoffMs(int refusals, qint64 base, qint64 cap)

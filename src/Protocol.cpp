@@ -129,12 +129,14 @@ namespace {
  */
 QString ticketMac(const QString &token, qint64 exp, const QString &path)
 {
-    const QByteArray msg =
-        QStringLiteral("afmu-dl-v1\n%1\n%2").arg(exp).arg(path).toUtf8();
+    // 直接拼而不用 arg()：域前缀现在来自生成的常量，把它塞进格式串会让
+    // 「哪个 %n 对应哪一段」依赖于前缀里有没有 % —— MAC 的输入不该有这种隐含前提。
+    const QByteArray msg = QByteArray(afmu::kTicketDomain) + QByteArray::number(exp) + '\n'
+        + path.toUtf8();
     const QByteArray digest = QMessageAuthenticationCode::hash(msg, token.toUtf8(),
                                                               QCryptographicHash::Sha256);
     return QString::fromLatin1(
-        digest.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals).left(22));
+        digest.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals).left(afmu::kTicketMacChars));
 }
 
 } // namespace
@@ -167,10 +169,10 @@ bool verifyDownloadTicket(const QString &token, const QString &path, const QStri
 
 QString makeToken()
 {
-    static const QString alphabet = QStringLiteral("abcdefghjkmnpqrstuvwxyz23456789");
+    static const QString alphabet = QString::fromLatin1(afmu::kTokenAlphabet);
     QString out;
-    out.reserve(10);
-    for (int i = 0; i < 10; ++i)
+    out.reserve(afmu::kTokenLength);
+    for (int i = 0; i < afmu::kTokenLength; ++i)
         out.append(alphabet.at(QRandomGenerator::system()->bounded(alphabet.size())));
     return out;
 }
