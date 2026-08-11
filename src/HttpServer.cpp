@@ -407,10 +407,24 @@ private slots:
         if (fp.isEmpty()) {
             // QueryPeer 下客户端不交证书握手照样成功。判空是挡住匿名连接的唯一一道，
             // 漏掉它等于把 mTLS 写成了单向 TLS。
+            //
+            // 只有访客模式例外，而且这个例外是**必须**的：浏览器永远不会出示客户端
+            // 证书（除非用户手工装一张，那是 UX 灾难），所以「HTTPS 的访客模式」
+            // 在这里放不放行，决定的就是它到底能不能用（草案 §9）。
+            // 放行之后它也只是个访客：m_peerPaired 为假，往下要过密码那道门。
+            if (!m_server->context().guest) {
+                emit m_server->logMessage(
+                    T(QStringLiteral("%1 的加密连接没有出示证书，已断开")).arg(peerHost()));
+                m_sock->abort();
+                deleteLater();
+                return;
+            }
+            m_peerPaired = false;
+            m_phase = Phase::Head;
             emit m_server->logMessage(
-                T(QStringLiteral("%1 的加密连接没有出示证书，已断开")).arg(peerHost()));
-            m_sock->abort();
-            deleteLater();
+                T(QStringLiteral("%1 以访客身份接入（已加密，但对方身份未经验证）")).arg(peerHost()));
+            if (m_sock->bytesAvailable() > 0)
+                onReadyRead();
             return;
         }
 
@@ -674,10 +688,28 @@ private:
 
         // 未钉扎的 v2 连接只有一条路可走（草案 §4.2.4）。这个判断必须排在所有
         // 路由之前，包括根路径和 /api/info —— 「除了配对什么都不能碰」才是它的意思。
+        //
+        // 唯一的例外是访客模式：那时候它可以往下走，去过 v1 那道密码认证。
+        // 这不是把门开大了 —— 明文连接本来就走那道门，访客模式只是让它**也能加密**。
+        // 真要收紧就关掉访客模式，那时两条路一起断。
         if (m_tls && !m_peerPaired) {
             if (m_path == QLatin1String("/api/pair-v2"))
                 return handlePairV2();
-            sendJson(403, errObj(QStringLiteral("not paired; only /api/pair-v2 is available")));
+            if (!ctx.guest) {
+                sendJson(403, errObj(QStringLiteral("not paired; only /api/pair-v2 is available")));
+                return;
+            }
+        }
+
+        // 访客模式关掉 = 密码认证这条路整个不存在（草案 §7/§9）。
+        //
+        // /api/authorize 也一起挡住：它的作用是把 token 发出去，而这时候 token
+        // 什么都打不开。发一个用不了的凭证，比明说「这条路关了」糟得多 ——
+        // 用户会拿着它反复试，然后去查网络、查防火墙。
+        if (!ctx.guest && !m_peerPaired
+            && (m_path == QLatin1String("/api/authorize") || m_path == QLatin1String("/api/pair"))) {
+            sendJson(403,
+                     errObj(QStringLiteral("guest mode is off; pair over an encrypted connection")));
             return;
         }
 
@@ -716,9 +748,19 @@ private:
         // v2 连接跳过这一整套：**握手成功 + 指纹在配对表里 = 认证已经完成**
         // （草案 §5）。对端持有的是钉扎过的私钥，比"每个请求带个长期共享密钥"强一个
         // 量级，再要一次 token 只是把 v1 的弱点原样搬过来。
-        const bool ok = (m_tls && m_peerPaired)
-            ? true
+        //
+        // 反过来，访客模式关掉时**任何** token 都不算数：密码认证就是 v1 的访问方式，
+        // 关掉它就是关掉它，不留「密码对了还是放行」的后门。
+        const bool ok = (m_tls && m_peerPaired) ? true
+            : !ctx.guest                        ? false
             : (m_path == QLatin1String("/api/download") ? authorizedForDownload() : authorized());
+        if (!ok && !ctx.guest) {
+            // 和「token 不对」分开报：这不是猜错密码，是这条路根本不通，
+            // 再试一百次也一样。退避在这里没有意义，说清楚才有。
+            sendJson(403,
+                     errObj(QStringLiteral("guest mode is off; pair over an encrypted connection")));
+            return;
+        }
         if (!ok) {
             const int wait = m_server->throttle().noteFailure(peer, now);
             if (wait > 0) {

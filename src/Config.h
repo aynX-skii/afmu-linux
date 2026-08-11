@@ -20,6 +20,9 @@ class Config : public QObject
     Q_PROPERTY(bool autoStartServer READ autoStartServer WRITE setAutoStartServer NOTIFY changed)
     Q_PROPERTY(bool allowAuthRequests READ allowAuthRequests WRITE setAllowAuthRequests NOTIFY changed)
     Q_PROPERTY(bool allowLegacyPlaintext READ allowLegacyPlaintext WRITE setAllowLegacyPlaintext NOTIFY changed)
+    Q_PROPERTY(bool zeroTrustMode READ zeroTrustMode WRITE setZeroTrustMode NOTIFY changed)
+    Q_PROPERTY(bool guestMode READ guestMode WRITE setGuestMode NOTIFY changed)
+    Q_PROPERTY(bool guestModeAvailable READ guestModeAvailable NOTIFY changed)
     Q_PROPERTY(int discoverTimeoutMs READ discoverTimeoutMs WRITE setDiscoverTimeoutMs NOTIFY changed)
     Q_PROPERTY(QString lastHost READ lastHost WRITE setLastHost NOTIFY changed)
     Q_PROPERTY(int lastPort READ lastPort WRITE setLastPort NOTIFY changed)
@@ -41,6 +44,30 @@ public:
     bool allowAuthRequests() const;
     /** 允许未加密的 v1 连接（PROTOCOL-v2-DRAFT.md §8.1）。见 setter 处的说明。 */
     bool allowLegacyPlaintext() const;
+
+    /**
+     * 零信任模式（草案 §9）：只认配对表里的设备，别的一律不放行。
+     * 打开之后访客模式强制关闭，界面上那个开关也置灰 —— 不是隐藏，
+     * 是让用户看得见「它被这个模式关掉了」。
+     */
+    bool zeroTrustMode() const;
+
+    /**
+     * 访客模式（草案 §9）：浏览器界面 + 密码认证，也就是 v1 那套访问方式。
+     *
+     * **它达不到 v2 的安全标准，而且做不到** —— 浏览器不会拿客户端证书做 mTLS，
+     * 自签服务端证书又只会弹一个「不安全」让用户点「继续」，点完就等于关掉了
+     * 中间人防护。所以它是个便利功能，界面上必须照实说，不要包装成安全的。
+     *
+     * 开着的时候它挡住的是**被动嗅探**（走 HTTPS 的话），不是中间人。
+     */
+    bool guestMode() const;
+
+    /** 零信任模式下访客模式不可用。界面拿它决定开关是否置灰。 */
+    bool guestModeAvailable() const { return !zeroTrustMode(); }
+
+    /** 实际生效的访客模式：开关开着**且**零信任没打开。服务端只该问这个。 */
+    bool guestModeActive() const { return guestMode() && !zeroTrustMode(); }
     int discoverTimeoutMs() const;
     QString lastHost() const;
     int lastPort() const;
@@ -58,6 +85,8 @@ public:
     void setAutoStartServer(bool v);
     void setAllowAuthRequests(bool v);
     void setAllowLegacyPlaintext(bool v);
+    void setZeroTrustMode(bool v);
+    void setGuestMode(bool v);
     void setDiscoverTimeoutMs(int v);
     void setLastHost(const QString &v);
     void setLastPort(int v);

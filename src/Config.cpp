@@ -69,6 +69,17 @@ void Config::load()
     // 现在 v2 客户端还没做（§12 第 4–6 步），关掉等于本机谁也连不上，
     // 包括手机上正在用的 v1 App。等两端的 v2 客户端都跑通了再翻默认值。
     ensure(QStringLiteral("allowLegacyPlaintext"), true);
+    // 零信任模式（草案 §9）：打开之后只认配对表里的设备，访客模式一并强制关闭。
+    ensure(QStringLiteral("zeroTrustMode"), false);
+    // 访客模式 = 浏览器界面 + 密码认证，也就是 v1 那套访问方式（草案 §9）。
+    //
+    // 新装默认关，升级默认开 —— 两个默认值不同是有意的：
+    //   · 草案要求默认关，那是对的，密码认证挡不住中间人。
+    //   · 但对已经在用的人来说，升级一次浏览器界面就打不开了，而且没有任何提示，
+    //     表现是「今天开始网页进不去了」。这和静默换密钥是同一类问题。
+    // 所以只有**配置文件本来就不存在**（真·新装）才默认关。两种情况都会写进
+    // 文件，于是设置页上看到的就是实际生效的值，不留任何隐式行为。
+    ensure(QStringLiteral("guestMode"), r.existed);
     ensure(QStringLiteral("discoverTimeoutMs"), 1500);
     ensure(QStringLiteral("lastHost"), QString());
     ensure(QStringLiteral("lastPort"), int(afmu::kDefaultHttpPort));
@@ -116,6 +127,8 @@ bool Config::readOnly() const { return m_json.value(QStringLiteral("readOnly")).
 bool Config::autoStartServer() const { return m_json.value(QStringLiteral("autoStartServer")).toBool(true); }
 bool Config::allowAuthRequests() const { return m_json.value(QStringLiteral("allowAuthRequests")).toBool(true); }
 bool Config::allowLegacyPlaintext() const { return m_json.value(QStringLiteral("allowLegacyPlaintext")).toBool(true); }
+bool Config::zeroTrustMode() const { return m_json.value(QStringLiteral("zeroTrustMode")).toBool(false); }
+bool Config::guestMode() const { return m_json.value(QStringLiteral("guestMode")).toBool(false); }
 int Config::discoverTimeoutMs() const { return m_json.value(QStringLiteral("discoverTimeoutMs")).toInt(1500); }
 QString Config::lastHost() const { return m_json.value(QStringLiteral("lastHost")).toString(); }
 int Config::lastPort() const { return m_json.value(QStringLiteral("lastPort")).toInt(afmu::kDefaultHttpPort); }
@@ -144,6 +157,8 @@ void Config::setReadOnly(bool v) { setValue(QStringLiteral("readOnly"), v); }
 void Config::setAutoStartServer(bool v) { setValue(QStringLiteral("autoStartServer"), v); }
 void Config::setAllowAuthRequests(bool v) { setValue(QStringLiteral("allowAuthRequests"), v); }
 void Config::setAllowLegacyPlaintext(bool v) { setValue(QStringLiteral("allowLegacyPlaintext"), v); }
+void Config::setZeroTrustMode(bool v) { setValue(QStringLiteral("zeroTrustMode"), v); }
+void Config::setGuestMode(bool v) { setValue(QStringLiteral("guestMode"), v); }
 void Config::setDiscoverTimeoutMs(int v) { setValue(QStringLiteral("discoverTimeoutMs"), qBound(300, v, 10000)); }
 void Config::setLastHost(const QString &v) { setValue(QStringLiteral("lastHost"), v); }
 void Config::setLastPort(int v) { setValue(QStringLiteral("lastPort"), v); }

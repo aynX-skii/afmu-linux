@@ -230,9 +230,28 @@ const Entry kEnglish[] = {
     {"关掉之后，本机只接受加密连接：非 TLS 的连接会被直接断开，不回任何响应。",
      "With this off, only encrypted connections are accepted: anything else is dropped "
      "without a reply."},
-    {"目前加密只做到了服务端一半，客户端还在做 —— 现在关掉等于谁也连不上，包括手机 App。",
-     "Only the server half of encryption is done so far; the client side is still being "
-     "built — turning this off right now means nothing can connect, the phone app included."},
+    {"手机 App 需要先与本机配对，旧版本和浏览器则会连不上。",
+     "The phone app has to be paired with this machine first; older versions and browsers "
+     "will not connect at all."},
+    {"%1 以访客身份接入（已加密，但对方身份未经验证）",
+     "%1 connected as a guest — encrypted, but the other end's identity is unverified"},
+    {"零信任模式", "Zero-trust mode"},
+    {"只接受已配对设备的加密连接。明文连接和访客模式一并关闭，下面两个开关随之失效。",
+     "Accept encrypted connections from paired devices only. Plaintext and guest mode are "
+     "switched off with it, and the two toggles below stop applying."},
+    {"这是 v2 完整的那道防线：认证靠双方的密钥，不靠任何共享密码。",
+     "This is the full v2 guarantee: authentication rests on both devices' keys, not on any "
+     "shared password."},
+    {"访客模式（密码认证）", "Guest mode (password)"},
+    {"允许没有配对过的设备凭访问密码连接，也就是旧版那套访问方式。",
+     "Lets devices you have never paired with connect using the access password — the way "
+     "the old version worked."},
+    {"走加密时它挡得住偷听，但挡不住中间人 —— 只在你信任的网络里用。",
+     "Over an encrypted link it stops eavesdropping, but not a man in the middle. Use it "
+     "only on a network you trust."},
+    {"关掉之后，只有配对表里的设备连得上，访问密码不再起任何作用。",
+     "With this off, only paired devices can connect and the access password stops working "
+     "entirely."},
     {"已配对设备", "Paired devices"},
     {"台", "devices"},
     {"还没有配对过的设备。加密连接（协议 v2）启用后，配对成功的设备会出现在这里。",

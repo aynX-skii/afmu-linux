@@ -16,6 +16,8 @@ Switch {
         x: control.leftPadding
         y: parent.height / 2 - height / 2
         radius: height / 2
+        // 置灰要连滑块一起：只把文字变淡、滑块还亮着，看起来像是能点的
+        opacity: control.enabled ? 1.0 : 0.45
         color: control.checked ? Theme.accent : Theme.elevated
         border.width: 1
         border.color: control.checked ? Theme.accent

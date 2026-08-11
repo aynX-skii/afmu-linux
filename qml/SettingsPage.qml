@@ -339,8 +339,24 @@ Item {
                     }
 
                     AppSwitch {
+                        text: Tr.t("零信任模式")
+                        checked: App.config.zeroTrustMode
+                        onToggled: App.config.zeroTrustMode = checked
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: Tr.t("只接受已配对设备的加密连接。明文连接和访客模式一并关闭，下面两个开关随之失效。")
+                              + "\n"
+                              + Tr.t("这是 v2 完整的那道防线：认证靠双方的密钥，不靠任何共享密码。")
+                        font.pixelSize: Theme.fsXs
+                        color: Theme.textFaint
+                        wrapMode: Text.WordWrap
+                    }
+
+                    AppSwitch {
                         text: Tr.t("允许未加密的旧版连接")
-                        checked: App.config.allowLegacyPlaintext
+                        enabled: !App.config.zeroTrustMode
+                        checked: App.config.allowLegacyPlaintext && !App.config.zeroTrustMode
                         // 不重启服务：重启会掐断正在传的文件，而这个开关管的是**新**连接。
                         // 改完立即生效（Config.changed → applyServerContext）。
                         onToggled: App.config.allowLegacyPlaintext = checked
@@ -349,9 +365,30 @@ Item {
                         Layout.fillWidth: true
                         text: Tr.t("关掉之后，本机只接受加密连接：非 TLS 的连接会被直接断开，不回任何响应。")
                               + "\n"
-                              + Tr.t("目前加密只做到了服务端一半，客户端还在做 —— 现在关掉等于谁也连不上，包括手机 App。")
+                              + Tr.t("手机 App 需要先与本机配对，旧版本和浏览器则会连不上。")
                         font.pixelSize: Theme.fsXs
                         color: Theme.textFaint
+                        wrapMode: Text.WordWrap
+                    }
+
+                    // 访客模式（草案 §9）。文案上不做任何美化 —— 它确实防不住中间人，
+                    // 把它包装成安全的，用户就会在不该用的地方用它。
+                    AppSwitch {
+                        text: Tr.t("访客模式（密码认证）")
+                        enabled: App.config.guestModeAvailable
+                        checked: App.config.guestMode && App.config.guestModeAvailable
+                        onToggled: App.config.guestMode = checked
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: Tr.t("允许没有配对过的设备凭访问密码连接，也就是旧版那套访问方式。")
+                              + "\n"
+                              + Tr.t("走加密时它挡得住偷听，但挡不住中间人 —— 只在你信任的网络里用。")
+                              + "\n"
+                              + Tr.t("关掉之后，只有配对表里的设备连得上，访问密码不再起任何作用。")
+                        font.pixelSize: Theme.fsXs
+                        color: App.config.guestMode && App.config.guestModeAvailable
+                               ? Theme.warning : Theme.textFaint
                         wrapMode: Text.WordWrap
                     }
                 }

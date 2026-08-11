@@ -1128,13 +1128,18 @@ void AppController::applyServerContext()
     ctx.deviceName = m_config->deviceName();
     ctx.inbox = m_config->inboxDir();
     ctx.writable = !m_config->readOnly();
+    // 服务端只该问「实际生效的访客模式」：零信任打开时，那个开关记着的值不算数。
+    ctx.guest = m_config->guestModeActive();
     ctx.roots = m_config->serveRoots();
     // inbox 必须在 roots 里，否则手机拉不回自己刚推上来的东西
     QDir().mkpath(ctx.inbox);
     if (!ctx.roots.contains(ctx.inbox))
         ctx.roots.prepend(ctx.inbox);
     m_server->setContext(ctx);
-    m_server->setAllowLegacyPlaintext(m_config->allowLegacyPlaintext());
+    // 零信任模式一并关掉明文（草案 §8.1）：只认配对表却还听明文，等于把那道
+    // 防线留了个洞 —— 明文连接连指纹都没有，无从判断对面是谁。
+    m_server->setAllowLegacyPlaintext(m_config->allowLegacyPlaintext()
+                                      && !m_config->zeroTrustMode());
 
     m_discovery->setAdvertisement(m_config->deviceName(),
                                   m_server->isListening() ? m_server->actualPort()

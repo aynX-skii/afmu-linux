@@ -22,6 +22,14 @@ struct ServerContext
     QString inbox;
     QStringList roots;
     bool writable = true;
+    /**
+     * 访客模式（草案 §9）：密码认证这条路开不开。
+     *
+     * 它就是 v1 的访问方式 —— 一个长期共享密钥。挡得住被动嗅探（走 HTTPS 的话），
+     * **挡不住中间人**，因为浏览器不会拿客户端证书做 mTLS。关掉之后只认配对表，
+     * 那才是 v2 承诺的那道防线。
+     */
+    bool guest = true;
 };
 
 class HttpServer : public QTcpServer
