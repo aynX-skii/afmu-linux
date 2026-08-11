@@ -23,7 +23,9 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QCryptographicHash>
 #include <QNetworkReply>
+#include <QRandomGenerator>
 #include <QTimer>
 #include <QUrl>
 #include <QUrlQuery>
@@ -117,6 +119,10 @@ AppController::AppController(QObject *parent)
 
     // 连上的不是配对表里那台。这是钉扎唯一会对用户可见的时刻，所以话要说明白：
     // 不是"证书有问题"，是"这不是你配对的那台设备"。
+    // 配对模式下握手完成，拿到对端指纹。SAS 要用它，配对成功也要用它。
+    connect(m_client, &PeerClient::peerIdentified, this,
+            [this](const QString &fp) { m_pairPeerFp = fp; });
+
     connect(m_client, &PeerClient::pinningFailed, this,
             [this](const QString &expected, const QString &actual) {
                 appendLog(actual.isEmpty()
@@ -428,9 +434,196 @@ void AppController::requestAuthorization(const QString &host, int port, const QS
     });
 }
 
+
+// ------------------------------------------------- v2 配对（草案 §4.2）
+
+void AppController::requestPairing(const QString &host, int port, const QString &name,
+                                   const QString &os)
+{
+    if (m_authPending)
+        return;
+    if (host.isEmpty()) {
+        notify(T(QStringLiteral("先选一台设备，再请求配对")), true);
+        return;
+    }
+    if (!m_server->tlsReady()) {
+        notify(T(QStringLiteral("本机的加密身份不可用，无法配对")), true);
+        return;
+    }
+
+    m_authHost = host;
+    m_authPort = port > 0 ? port : int(afmu::kDefaultHttpPort);
+    m_authOs = os;
+    m_peerName = name.isEmpty() ? host : name;
+    m_peerOs = os;
+    m_authTarget = QStringLiteral("%1 · %2:%3").arg(m_peerName, m_authHost).arg(m_authPort);
+    m_authCode.clear();
+    m_authRequestId.clear();
+    m_authRemaining = afmu::kAuthTimeoutSec;
+    m_authStatus = QStringLiteral("sending");
+    m_authPending = true;
+    m_authIsPairing = true;
+
+    m_pairSession.clear();
+    m_pairPeerFp.clear();
+    m_pairSas.clear();
+    m_pairNonceB.clear();
+    // n_a 现在就定死，而且在 commit 发出去之后**绝不重新生成**：
+    // 换一个就等于允许在看到 n_b 之后改主意，commit 这一步就白做了（§4.2.2）。
+    m_pairNonceA.resize(32);
+    QRandomGenerator::system()->generate(m_pairNonceA.begin(), m_pairNonceA.end());
+    emit authChanged();
+
+    ensureServerRunning();
+    // 配对模式：走 TLS 但不比对指纹 —— 此刻还不知道该比什么，这正是要解决的问题。
+    m_client->setPairingPeer(m_authHost, m_authPort);
+    pairingCommit();
+}
+
+void AppController::pairingCommit()
+{
+    const QByteArray commit =
+        QCryptographicHash::hash(m_pairNonceA, QCryptographicHash::Sha256);
+
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("step"), QStringLiteral("commit"));
+    q.addQueryItem(QStringLiteral("commit"), QString::fromLatin1(commit.toHex()));
+    q.addQueryItem(QStringLiteral("name"), m_config->deviceName());
+    q.addQueryItem(QStringLiteral("os"), QStringLiteral("linux"));
+
+    QNetworkReply *reply = m_client->post(QStringLiteral("/api/pair-v2"), q);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (!m_authPending || !m_authIsPairing)
+            return;
+        const QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
+        const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply->error() != QNetworkReply::NoError || !o.value(QStringLiteral("ok")).toBool(false)) {
+            if (code == 404)
+                finishAuthorization(QStringLiteral("unsupported")); // 对端还不会 v2
+            else if (code == 429)
+                finishAuthorization(QStringLiteral("denied"));
+            else
+                finishAuthorization(QStringLiteral("failed"));
+            return;
+        }
+        m_pairSession = o.value(QStringLiteral("session")).toString();
+        m_pairNonceB = QByteArray::fromHex(o.value(QStringLiteral("nb")).toString().toLatin1());
+        if (m_pairSession.isEmpty() || m_pairNonceB.size() != 32) {
+            finishAuthorization(QStringLiteral("failed"));
+            return;
+        }
+        pairingReveal();
+    });
+}
+
+void AppController::pairingReveal()
+{
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("step"), QStringLiteral("reveal"));
+    q.addQueryItem(QStringLiteral("session"), m_pairSession);
+    q.addQueryItem(QStringLiteral("na"), QString::fromLatin1(m_pairNonceA.toHex()));
+
+    QNetworkReply *reply = m_client->post(QStringLiteral("/api/pair-v2"), q);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (!m_authPending || !m_authIsPairing)
+            return;
+        const QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
+        if (reply->error() != QNetworkReply::NoError || !o.value(QStringLiteral("ok")).toBool(false)) {
+            finishAuthorization(QStringLiteral("failed"));
+            return;
+        }
+
+        // **自己算一遍，显示自己算的那个。** 服务端回的只用来自检有没有实现 bug ——
+        // 显示它等于让中间人回一个你期望的串就骗过去，整套机制归零（§4.2.3）。
+        const QString mine = afmu::computeSas(m_identity->fingerprint(),
+                                              afmu::Identity::fromBase32(m_pairPeerFp),
+                                              m_pairNonceA, m_pairNonceB);
+        if (mine.isEmpty()) {
+            finishAuthorization(QStringLiteral("failed"));
+            return;
+        }
+        if (mine != o.value(QStringLiteral("sas")).toString()) {
+            // 两端算出的不一样 = 有一端实现不对。**一个码都不要显示** ——
+            // 显示了用户就会去比对，而这时候比对本身已经没有意义了。
+            appendLog(T(QStringLiteral("两端算出的比对码不一致，已中止 —— 这是实现问题，不是攻击")));
+            finishAuthorization(QStringLiteral("failed"));
+            return;
+        }
+
+        m_pairSas = mine;
+        m_authStatus = QStringLiteral("pending");
+        emit authChanged();
+        appendLog(T(QStringLiteral("配对比对码 %1，请与对端屏幕核对"))
+                      .arg(afmu::formatSas(m_pairSas)));
+        m_authTimer->start();
+    });
+}
+
+void AppController::pollPairing()
+{
+    if (--m_authRemaining <= 0) {
+        finishAuthorization(QStringLiteral("expired"));
+        return;
+    }
+    emit authChanged();
+
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("session"), m_pairSession);
+    QNetworkReply *reply = m_client->get(QStringLiteral("/api/pair-v2"), q);
+    connect(reply, &QNetworkReply::finished, this, [this, reply] {
+        reply->deleteLater();
+        if (!m_authPending || !m_authIsPairing)
+            return;
+        const QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
+        if (reply->error() != QNetworkReply::NoError || !o.value(QStringLiteral("ok")).toBool(false)) {
+            if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 404)
+                finishAuthorization(QStringLiteral("expired"));
+            return;
+        }
+        const QString status = o.value(QStringLiteral("status")).toString();
+        if (status == QLatin1String("pending"))
+            return;
+        if (status != QLatin1String("granted")) {
+            finishAuthorization(status == QLatin1String("denied") ? QStringLiteral("denied")
+                                                                  : QStringLiteral("expired"));
+            return;
+        }
+
+        // 对端点了「允许」。把它写进配对表 —— 这一下才是真正开门。
+        PeerRecord rec;
+        rec.fp = m_pairPeerFp;
+        rec.name = o.value(QStringLiteral("name")).toString();
+        if (rec.name.isEmpty())
+            rec.name = m_peerName;
+        rec.os = o.value(QStringLiteral("os")).toString();
+        rec.lastHost = m_authHost;
+        rec.lastPort = o.value(QStringLiteral("port")).toInt(m_authPort);
+        m_peers->upsert(rec);
+
+        appendLog(T(QStringLiteral("已与 %1 配对，指纹 %2"))
+                      .arg(rec.name, afmu::Identity::group(rec.fp)));
+        const QString who = rec.name;
+        const QString host = m_authHost;
+        const int port = rec.lastPort;
+        const QString os = rec.os;
+        finishAuthorization(QStringLiteral("granted"));
+        notify(T(QStringLiteral("已与 %1 配对")).arg(who), false);
+        // 配对完立刻按正常方式连一次：这次会走钉扎，是真正的 v2 连接。
+        connectToDevice(host, port, who, os);
+    });
+}
+
 void AppController::pollAuthorization()
 {
-    if (!m_authPending || m_authRequestId.isEmpty())
+    if (!m_authPending)
+        return;
+    if (m_authIsPairing) {
+        pollPairing();
+        return;
+    }
+    if (m_authRequestId.isEmpty())
         return;
     if (--m_authRemaining <= 0) {
         finishAuthorization(QStringLiteral("expired"));
@@ -494,7 +687,30 @@ void AppController::finishAuthorization(const QString &status)
     m_authStatus = status;
     m_authRequestId.clear();
     m_authRemaining = 0;
+
+    const bool wasPairing = m_authIsPairing;
+    m_authIsPairing = false;
+    m_pairSession.clear();
+    // 随机数用完就丢：留着只会诱惑下一次复用，而复用一组随机数等于把
+    // commit-reveal 的绑定作废（§4.2.2）。
+    m_pairNonceA.clear();
+    m_pairNonceB.clear();
+    // 配对模式下这条客户端不比对指纹，用完必须关掉，否则后面的正常请求
+    // 会变成"加密但谁都信"。
+    m_client->endPairing();
     emit authChanged();
+
+    if (wasPairing) {
+        if (status == QLatin1String("denied"))
+            notify(T(QStringLiteral("对方拒绝了本次配对")), true);
+        else if (status == QLatin1String("expired"))
+            notify(T(QStringLiteral("配对超时，对方没有确认")), true);
+        else if (status == QLatin1String("unsupported"))
+            notify(T(QStringLiteral("对端还不支持加密配对")), true);
+        else if (status == QLatin1String("failed"))
+            notify(T(QStringLiteral("配对失败")), true);
+        return; // granted 那条已经在 pollPairing 里说过了
+    }
 
     if (status == QLatin1String("granted")) {
         notify(T(QStringLiteral("已获授权，正在连接 %1")).arg(m_peerName), false);

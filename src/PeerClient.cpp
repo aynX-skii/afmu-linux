@@ -51,10 +51,23 @@ void PeerClient::setIdentity(const afmu::Identity *id, PeerStore *peers)
  */
 void PeerClient::checkPinning(QNetworkReply *reply)
 {
-    if (!reply || m_expectedFp.isEmpty())
+    if (!reply || (m_expectedFp.isEmpty() && !m_pairing))
         return;
 
     const QString actual = afmu::peerFingerprint(reply->sslConfiguration().peerCertificate());
+
+    if (m_pairing) {
+        // 配对模式：不比对，只把对端指纹交出去让用户确认（见 setPairingPeer）。
+        // 没有证书仍然是错的 —— 那样连"跟谁配对"都说不出来。
+        if (actual.isEmpty()) {
+            reply->abort();
+            emit pinningFailed(QString(), QString());
+            return;
+        }
+        emit peerIdentified(actual);
+        return;
+    }
+
     if (actual == m_expectedFp) {
         // 地址只是提示，但既然这次确实在这儿连上了，把提示更新一下（§13 问题 3）
         if (m_peers)
@@ -66,10 +79,24 @@ void PeerClient::checkPinning(QNetworkReply *reply)
     emit pinningFailed(m_expectedFp, actual);
 }
 
+void PeerClient::setPairingPeer(const QString &host, int port)
+{
+    m_host = host;
+    m_port = port;
+    m_expectedFp.clear();
+    m_pairing = m_identity != nullptr;
+}
+
+void PeerClient::endPairing()
+{
+    m_pairing = false;
+}
+
 void PeerClient::setPeer(const QString &host, int port)
 {
     m_host = host;
     m_port = port;
+    m_pairing = false;
 
     // 这个地址在配对表里有记录 → 这次必须走 v2，并钉住那条记录的指纹。
     //
@@ -175,6 +202,12 @@ QNetworkReply *PeerClient::post(const QString &apiPath, const QUrlQuery &query, 
     if (body)
         return track(m_nam->post(req, body));
     req.setHeader(QNetworkRequest::ContentLengthHeader, 0);
+    if (contentType.isEmpty()) {
+        // 没有 body 的 POST。不声明的话 Qt 会替我们猜一个并打警告 ——
+        // 参数全在 query 里，这里声明一个空 body 的类型就行。
+        req.setHeader(QNetworkRequest::ContentTypeHeader,
+                      QStringLiteral("application/x-www-form-urlencoded"));
+    }
     return track(m_nam->post(req, QByteArray()));
 }
 

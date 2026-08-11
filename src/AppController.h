@@ -1,6 +1,8 @@
 #pragma once
 
 #include "Config.h"
+#include "Identity.h"
+#include "PairSas.h"
 
 #include <QHash>
 #include <QObject>
@@ -79,6 +81,10 @@ class AppController : public QObject
     Q_PROPERTY(QString authCode READ authCode NOTIFY authChanged)
     Q_PROPERTY(QString authTarget READ authTarget NOTIFY authChanged)
     Q_PROPERTY(int authRemaining READ authRemaining NOTIFY authChanged)
+    // v2 配对：走的是同一套「发起 → 等对端点头」的状态机，但显示的是 8 字符 SAS
+    Q_PROPERTY(bool authIsPairing READ authIsPairing NOTIFY authChanged)
+    Q_PROPERTY(QString authSas READ authSas NOTIFY authChanged)
+    Q_PROPERTY(QString authPeerFingerprint READ authPeerFingerprint NOTIFY authChanged)
 
     // 反过来：别的设备来请求连接本机，由用户在本机确认（Linux ↔ Linux 靠这条打通）
     Q_PROPERTY(bool incomingAuthPending READ incomingAuthPending NOTIFY incomingAuthChanged)
@@ -146,6 +152,9 @@ public:
     QString authCode() const { return m_authCode; }
     QString authTarget() const { return m_authTarget; }
     int authRemaining() const { return m_authRemaining; }
+    bool authIsPairing() const { return m_authIsPairing; }
+    QString authSas() const { return afmu::formatSas(m_pairSas); }
+    QString authPeerFingerprint() const { return afmu::Identity::group(m_pairPeerFp); }
 
     bool incomingAuthPending() const;
     QString incomingAuthName() const;
@@ -181,6 +190,12 @@ public slots:
 
     /** 没有 token 时的连接方式：请对端弹窗授权，同意后自动拿到 token 并连上。 */
     void requestAuthorization(const QString &host, int port, const QString &name, const QString &os);
+
+    /**
+     * v2 配对（草案 §4.2）：三步 commit-reveal，两端各自算出同一个 8 字符码，
+     * 用户比对之后对端点「允许」，双方互相写进配对表。
+     */
+    void requestPairing(const QString &host, int port, const QString &name, const QString &os);
     void cancelAuthorization();
 
     /** 别的设备来敲门，用户在本机点了「允许」/「拒绝」。 */
@@ -225,6 +240,9 @@ private:
     bool ensureServerRunning();
 
     void pollAuthorization();
+    void pollPairing();
+    void pairingCommit();
+    void pairingReveal();
     void finishAuthorization(const QString &status);
     /** 授权通过后把本机的地址和 token 回填给对端，一次配对打通两个方向。 */
     void pushPairBack();
@@ -274,6 +292,14 @@ private:
     QString m_authOs;
     int m_authPort = 0;
     int m_authRemaining = 0;
+
+    // v2 配对。复用上面那套 pending / status / remaining，只是内容不同。
+    bool m_authIsPairing = false;
+    QString m_pairSession;
+    QString m_pairPeerFp;
+    QString m_pairSas;
+    QByteArray m_pairNonceA;
+    QByteArray m_pairNonceB;
 
     // HttpServer 的传输 id → TransferModel 的任务 id / 方向
     QHash<qint64, qint64> m_serverIds;
