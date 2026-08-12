@@ -873,7 +873,7 @@ private:
 
         if (step == QLatin1String("commit")) {
             const QByteArray commit =
-                QByteArray::fromHex(param(QStringLiteral("commit")).toLatin1());
+                afmu::hexDecodeStrict(param(QStringLiteral("commit")));
             if (commit.size() != 32) {
                 sendJson(400, errObj(QStringLiteral("commit must be 32 bytes of hex")));
                 return;
@@ -905,7 +905,7 @@ private:
         }
 
         if (step == QLatin1String("reveal")) {
-            const QByteArray na = QByteArray::fromHex(param(QStringLiteral("na")).toLatin1());
+            const QByteArray na = afmu::hexDecodeStrict(param(QStringLiteral("na")));
             const QString sas = auth->revealPairing(param(QStringLiteral("session")), na,
                                                     id->fingerprint());
             if (sas.isEmpty()) {

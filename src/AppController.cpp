@@ -510,7 +510,7 @@ void AppController::pairingCommit()
             return;
         }
         m_pairSession = o.value(QStringLiteral("session")).toString();
-        m_pairNonceB = QByteArray::fromHex(o.value(QStringLiteral("nb")).toString().toLatin1());
+        m_pairNonceB = afmu::hexDecodeStrict(o.value(QStringLiteral("nb")).toString());
         if (m_pairSession.isEmpty() || m_pairNonceB.size() != 32) {
             finishAuthorization(QStringLiteral("failed"));
             return;

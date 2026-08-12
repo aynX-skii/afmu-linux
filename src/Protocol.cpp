@@ -11,6 +11,37 @@ namespace afmu {
 
 namespace {
 
+int hexNibble(QChar c)
+{
+    const ushort u = c.unicode();
+    if (u >= '0' && u <= '9')
+        return u - '0';
+    if (u >= 'a' && u <= 'f')
+        return u - 'a' + 10;
+    if (u >= 'A' && u <= 'F')
+        return u - 'A' + 10;
+    return -1;
+}
+
+} // namespace
+
+QByteArray hexDecodeStrict(const QString &text)
+{
+    if (text.isEmpty() || text.size() % 2 != 0)
+        return {};
+    QByteArray out(text.size() / 2, Qt::Uninitialized);
+    for (int i = 0; i < out.size(); ++i) {
+        const int hi = hexNibble(text.at(i * 2));
+        const int lo = hexNibble(text.at(i * 2 + 1));
+        if (hi < 0 || lo < 0)
+            return {};
+        out[i] = char((hi << 4) | lo);
+    }
+    return out;
+}
+
+namespace {
+
 /** 从 Host / Origin 里取出主机名，剥掉端口和 IPv6 的方括号。 */
 QString hostNameOf(const QString &raw)
 {

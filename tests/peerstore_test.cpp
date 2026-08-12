@@ -358,6 +358,29 @@ int main(int argc, char **argv)
                      qPrintable(afmu::rollingId(fp1, 0)));
     }
 
+    // ------------------------------------------------------------ 严格 hex
+    //
+    // commit / na 是对端**还没被授权**时就能从查询参数塞进来的东西，而两端对
+    // 「什么算合法 hex」必须是同一个答案。Qt 的 fromHex 会跳过看不懂的字符，
+    // Kotlin 的 digitToInt(16) 会接受阿拉伯-印度数字 —— 都不行。
+    {
+        check(afmu::hexDecodeStrict(QStringLiteral("0a1b")) == QByteArray::fromHex("0a1b"),
+              "正常的 hex 应当正确解出");
+        check(afmu::hexDecodeStrict(QStringLiteral("AB")) == QByteArray::fromHex("ab"),
+              "大写也认");
+        // 下面每一条 QByteArray::fromHex 都会「宽容」地解出点什么来，正是不要的行为
+        check(afmu::hexDecodeStrict(QStringLiteral("11 22")).isEmpty(), "带空格整串作废");
+        check(afmu::hexDecodeStrict(QStringLiteral("11zz")).isEmpty(),
+              "前缀合法、后面是垃圾 → 整串作废，绝不返回半截");
+        check(afmu::hexDecodeStrict(QStringLiteral("abc")).isEmpty(), "奇数长度作废");
+        check(afmu::hexDecodeStrict(QStringLiteral("0x11")).isEmpty(), "带前缀作废");
+        check(afmu::hexDecodeStrict(QString::fromUtf8("١١")).isEmpty(),
+              "阿拉伯-印度数字不是 hex");
+        check(afmu::hexDecodeStrict(QString()).isEmpty(), "空串解成空");
+        check(afmu::hexDecodeStrict(QString(64, QLatin1Char('1'))).size() == 32,
+              "64 个字符解出 32 字节");
+    }
+
     // ------------------------------------------------- 配对会话（commit-reveal，v2 §4.2.3）
     //
     // 这段逻辑是整个抗中间人机制的核心，而**它坏掉的时候什么都看不出来**：

@@ -10,6 +10,20 @@
 // 协议辅助函数，严格对应 docs/PROTOCOL.md v1
 namespace afmu {
 
+/**
+ * 严格的 hex 解码：只认 ASCII `0-9a-fA-F`，长度必须是偶数，**任何一处不合法就整串作废**。
+ *
+ * 不用 `QByteArray::fromHex`：它会**跳过**看不懂的字符，于是 `"11 22"` 解成 `0x1122`、
+ * `"11zz"` 解成 `0x11`。Kotlin 那边的 `Char.digitToInt(16)` 又会接受任意 Unicode
+ * 十进制数字（`١١` 解得出真实字节）。同一个字符串三种答案 —— 而配对握手里的
+ * `commit` / `na` 正是从查询参数来的、对端还没被授权时就能塞进来的东西。
+ * 两端对「什么算合法 hex」必须是同一个答案。
+ *
+ * 半截解码尤其危险：调用方都按长度校验，而「前 11 字节合法、后面是垃圾」
+ * 如果解成 11 字节，某个长度刚好对得上的检查就会放它过去。所以要么全对，要么空。
+ */
+QByteArray hexDecodeStrict(const QString &text);
+
 // 常数时间比较，避免用 == 泄露前缀信息
 bool tokenEquals(const QByteArray &a, const QByteArray &b);
 
