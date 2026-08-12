@@ -210,13 +210,26 @@ Item {
                             spacing: 3
                             Layout.fillWidth: true
 
-                            Text {
-                                text: name
-                                font.pixelSize: Theme.fsMd
-                                font.bold: true
-                                color: Theme.text
-                                elide: Text.ElideRight
+                            RowLayout {
                                 Layout.fillWidth: true
+                                spacing: 6
+                                Text {
+                                    text: name
+                                    font.pixelSize: Theme.fsMd
+                                    font.bold: true
+                                    color: Theme.text
+                                    elide: Text.ElideRight
+                                    Layout.fillWidth: true
+                                }
+                                // 这个列表里混着两种设备：刚应答广播的，和配对表里的。
+                                // 是哪一种决定了流量加不加密，不该让用户去猜。
+                                // （paired 由发现协议的滚动 rid 认出来，见 v2 §6.1）
+                                AppIcon {
+                                    visible: paired
+                                    name: "lock"
+                                    size: 13
+                                    color: Theme.success
+                                }
                             }
                             Text {
                                 text: host + ":" + port + "  ·  " + os
@@ -237,7 +250,8 @@ Item {
                             text: Tr.t("加密配对")
                             iconName: "lock"
                             variant: FlatButton.Variant.Subtle
-                            visible: App.tlsReady
+                            // 已经在配对表里的就别再问一遍了
+                            visible: App.tlsReady && !paired
                             enabled: !App.authPending
                             onClicked: App.requestPairing(host, port, name, os)
                         }

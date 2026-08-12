@@ -340,8 +340,19 @@ Item {
 
                     AppSwitch {
                         text: Tr.t("零信任模式")
-                        checked: App.config.zeroTrustMode
+                        // 加密不可用时不许打开：那会变成「明文被拒、加密又起不来」——
+                        // 谁也连不上，而且连配对都做不了（配对本身要走 TLS）。
+                        enabled: App.tlsReady
+                        checked: App.config.zeroTrustMode && App.tlsReady
                         onToggled: App.config.zeroTrustMode = checked
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        visible: !App.tlsReady
+                        text: Tr.t("加密不可用，所以这个开关不能打开 —— 打开只会让本机谁也连不上。")
+                        font.pixelSize: Theme.fsXs
+                        color: Theme.warning
+                        wrapMode: Text.WordWrap
                     }
                     Text {
                         Layout.fillWidth: true

@@ -79,6 +79,11 @@ void PeerClient::checkPinning(QNetworkReply *reply)
         }
         // 生人。连接是加密的，但对面是谁无从谈起 —— 和 v1 同级，仍然要 token。
         // 不中止：这正是「连一台还没配对的设备」，本来就该允许。
+        //
+        // 但**这一整个会话都要继续走 TLS**。不置这个标志的话 secure() 会翻回假，
+        // 下一个请求就是明文 —— 前半段加密后半段不加密，比全程明文更糟，
+        // 因为它看起来是加密的。
+        m_tlsGuest = true;
         return;
     }
 
@@ -98,6 +103,8 @@ void PeerClient::setPairingPeer(const QString &host, int port)
     m_host = host;
     m_port = port;
     m_expectedFp.clear();
+    m_discover = false;
+    m_tlsGuest = false;
     m_pairing = m_identity != nullptr;
 }
 
@@ -118,6 +125,7 @@ void PeerClient::setPeer(const QString &host, int port)
     // 连接被拒，失败方向是安全的。反过来「地址对上了就信任」才是错的。
     m_expectedFp.clear();
     m_discover = false;
+    m_tlsGuest = false;
     if (!m_identity || !m_peers)
         return;
     const PeerRecord known = m_peers->findByAddressHint(host, port);
@@ -152,13 +160,13 @@ QUrl PeerClient::url(const QString &apiPath, const QUrlQuery &query) const
 QNetworkRequest PeerClient::request(const QString &apiPath, const QUrlQuery &query) const
 {
     QNetworkRequest req(url(apiPath, query));
-    if (secure()) {
+    if (secure())
         req.setSslConfiguration(m_tlsConfig);
-        // v2 里没有 token 这回事：身份由那对被钉扎的密钥承担（§5.2）。
-        // 还带着它只会把 v1 的弱点原样搬过来。
-    } else {
+    // 钉扎过的连接不带 token：身份由那对密钥承担（§5.2），还带着它只会把 v1 的
+    // 弱点原样搬过来。**但「加密」不等于「钉扎」** —— 探测中和访客连接都是加密的
+    // 而身份未定，那时候 token 仍然是我们唯一的凭证。
+    if (!pinned())
         req.setRawHeader(afmu::kTokenHeader, m_token.toUtf8());
-    }
     req.setRawHeader("Accept", "application/json");
     req.setRawHeader("User-Agent", "afmu-linux/1.0");
     req.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);

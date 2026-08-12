@@ -80,17 +80,23 @@ Item {
                                                 && !App.config.zeroTrustMode
             readonly property bool guestOn: App.config.guestMode && !App.config.zeroTrustMode
 
-            readonly property color tone: !App.tlsReady || plaintextOn ? Theme.warning
-                                        : guestOn ? Theme.warning : Theme.success
+            // 加密起不来、明文又被拒 = 这个端口现在谁也进不来。这是个安全属性，
+            // 不只是文案：开关显示着「开」却在服务明文，正是这些开关反对的事。
+            readonly property bool deadEnd: !App.tlsReady && !plaintextOn
+
+            readonly property color tone: (deadEnd || !App.tlsReady || plaintextOn || guestOn)
+                                        ? Theme.warning : Theme.success
 
             readonly property string title:
-                  !App.tlsReady ? Tr.t("未加密")
+                  deadEnd       ? Tr.t("谁也连不上")
+                : !App.tlsReady ? Tr.t("未加密")
                 : plaintextOn   ? Tr.t("明文连接仍然开着")
                 : guestOn       ? Tr.t("只接受加密连接（含访客）")
                                 : Tr.t("只接受已配对设备的加密连接")
 
             readonly property string detail:
-                  !App.tlsReady ? Tr.t("流量是明文 HTTP。同一网络里的任何人都能看到文件名和文件内容。请只在信任的网络里使用。")
+                  deadEnd       ? Tr.t("要求只走加密，但加密没能就绪，于是所有连接一律拒绝 —— 不会悄悄退回明文。原因见下面的日志。")
+                : !App.tlsReady ? Tr.t("流量是明文 HTTP。同一网络里的任何人都能看到文件名和文件内容。请只在信任的网络里使用。")
                 : plaintextOn   ? Tr.t("已配对的设备走加密，其余连接仍是明文 —— 那些文件名和内容同一网络里的人都看得到。")
                 : guestOn       ? Tr.t("流量已加密，挡得住偷听。但访客模式开着：没配对过的设备凭访问密码也能进，它们的身份没有经过验证。")
                                 : Tr.t("只有配对表里的设备连得上，认证靠双方的密钥。这是 v2 完整的那道防线。")

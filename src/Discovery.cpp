@@ -221,7 +221,8 @@ void Discovery::setIdentity(const afmu::Identity *id, PeerStore *peers)
 }
 
 /**
- * 收到的应答是不是配对表里的某一台。认出来了就回填名字/系统并刷新地址提示。
+ * 收到的应答是不是配对表里的某一台。认出来了就回填名字和系统 —— **仅此而已**，
+ * 不碰配对表（原因见 noteIdentified）。
  *
  * 认不出来是常态，不是错误：陌生设备、v1 设备、以及所有还没配对的设备都认不出来。
  */
@@ -262,9 +263,19 @@ QString Discovery::noteIdentified(const QString &fp, const QString &host, int po
         *name = r.name;
     if (os && os->isEmpty() && !r.os.isEmpty())
         *os = r.os;
-    // 换了 IP 也认得出来，正是 rid 存在的理由之一（v2 §13 问题 3）。
-    // 刷新提示之后，下次连接就能直接找到该钉哪个指纹。
-    m_peers->noteSeen(fp, host, port);
+    // **这里只贴标签，不落盘。**
+    //
+    // `rid` 是个持有即可用的值：它从这台设备的公开应答里算出来，局域网里任何人
+    // 探一下就能拿到当前时间窗的那个，然后从自己的地址原样报出来。拿它去改
+    // peers.json 的地址提示，等于让一个**未经认证的 UDP 包写持久状态** ——
+    // 攻击者可以把某台已配对设备的提示指到自己身上，并让列表里显示成那台设备。
+    //
+    // 后果本来有限（真去连的时候钉扎会失败并拒绝），但「未认证输入写盘」这件事
+    // 本身就不该有。地址提示交给 PeerClient 在**握手成功之后**刷新 —— 那时候
+    // 对端是谁已经由钉扎确认过了。而提示过期也不再是问题：查不到记录时客户端会
+    // 先试加密再按指纹认人（见 PeerClient::discovering），§13 问题 3 照样成立。
+    Q_UNUSED(host);
+    Q_UNUSED(port);
     return fp;
 }
 

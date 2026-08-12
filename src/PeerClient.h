@@ -38,7 +38,27 @@ public:
      * 之后**绝不会**因为握手失败而退回明文（§8.1 第 1 条）——
      * 那正是降级攻击想要的，也是这一层唯一真正的防线。
      */
-    bool secure() const { return !m_expectedFp.isEmpty() || m_pairing || m_discover; }
+    /**
+     * 这次连接走不走 TLS。**这和「对端是谁」是两个问题**，别合并 ——
+     * 合并过一次，代价是两个 bug：
+     *
+     *  - 探测模式下（还不知道对面是谁）不带 token，对面是生人就吃 401，
+     *    而调用方会把它读成「token 失效了」，转头去发一个多余的授权请求；
+     *  - 握手完发现是生人之后，如果这里变回假，后续请求会**悄悄退回明文** ——
+     *    同一个会话前半段加密后半段不加密，正是最不该有的形状。
+     */
+    bool secure() const
+    {
+        return !m_expectedFp.isEmpty() || m_pairing || m_discover || m_tlsGuest;
+    }
+
+    /**
+     * 对端的身份**已经由钉扎确认**。只有这时候才不需要 token ——
+     * 握手成功 + 指纹在配对表里就是认证本身（v2 §5.2）。
+     * 加密但没钉扎（访客、探测中）仍然要带 token，它和 v1 同级。
+     */
+    bool pinned() const { return !m_expectedFp.isEmpty(); }
+
     QString expectedFingerprint() const { return m_expectedFp; }
 
     /**
@@ -59,7 +79,11 @@ public:
      */
     bool discovering() const { return m_discover; }
     /** 握手失败之后关掉它，好让调用方按明文重试一次。 */
-    void stopDiscovering() { m_discover = false; }
+    void stopDiscovering()
+    {
+        m_discover = false;
+        m_tlsGuest = false; // 连 TLS 都没握上，别再假装这条会话是加密的
+    }
 
     /**
      * 配对模式：走 TLS，但**不比对指纹** —— 因为此刻还不知道该比什么，
@@ -130,4 +154,6 @@ private:
     bool m_pairing = false;
     /** 见 discovering()：不带期望值先试 TLS，握手后按指纹认人。 */
     bool m_discover = false;
+    /** 探测发现对面是生人：连接保持加密，但身份未认证，照旧带 token。 */
+    bool m_tlsGuest = false;
 };

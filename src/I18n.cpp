@@ -60,6 +60,13 @@ const Entry kEnglish[] = {
     {"明文 HTTP，token 只防误连，不要在公共 Wi-Fi 上使用",
      "Plain HTTP — the token only prevents mistaken connections. Not for public Wi-Fi."},
     {"未加密", "Unencrypted"},
+    {"加密不可用，所以这个开关不能打开 —— 打开只会让本机谁也连不上。",
+     "Encryption is unavailable, so this cannot be switched on — doing so would leave nothing "
+     "able to connect."},
+    {"谁也连不上", "Nothing can connect"},
+    {"要求只走加密，但加密没能就绪，于是所有连接一律拒绝 —— 不会悄悄退回明文。原因见下面的日志。",
+     "Encrypted-only is required but encryption did not come up, so every connection is "
+     "refused rather than quietly downgraded. See the log below for why."},
     {"%1 在配对表里，只接受加密连接，而这次握手没成 —— 已拒绝，不会退回明文",
      "%1 is in the pairing table and only accepts encrypted connections; the handshake did "
      "not succeed, so the connection was refused rather than downgraded"},
