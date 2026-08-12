@@ -134,6 +134,10 @@ if(AFMU_TESTS)
         src/Identity.h   src/Identity.cpp
         src/JsonFile.h   src/JsonFile.cpp
         src/PairSas.h    src/PairSas.cpp
+        src/AuthRequests.h src/AuthRequests.cpp
+        src/AuthThrottle.h src/AuthThrottle.cpp
+        src/I18n.h       src/I18n.cpp
+        src/Config.h     src/Config.cpp
         src/RollingId.h  src/RollingId.cpp
         src/Protocol.h   src/Protocol.cpp
     )

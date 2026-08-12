@@ -11,6 +11,7 @@
  *   cmake -S . -B build -DAFMU_TESTS=ON && cmake --build build && ./build/afmu_peerstore_test
  */
 
+#include "../src/AuthRequests.h"
 #include "../src/Identity.h"
 #include "../src/PairSas.h"
 #include "../src/RollingId.h"
@@ -19,6 +20,7 @@
 #include "../src/ProtocolConstants.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -354,6 +356,127 @@ int main(int argc, char **argv)
                      qPrintable(afmu::rollingId(fp2, t)));
         std::fprintf(stderr, "  [向量] rid(fp=0x11×32, t=0)          = %s\n",
                      qPrintable(afmu::rollingId(fp1, 0)));
+    }
+
+    // ------------------------------------------------- 配对会话（commit-reveal，v2 §4.2.3）
+    //
+    // 这段逻辑是整个抗中间人机制的核心，而**它坏掉的时候什么都看不出来**：
+    // 削弱了的 commit 校验照样出码、照样弹框、照样配对成功，变的只是能中继连接的
+    // 攻击者可以挑一个用户会欣然确认的码。所以下面几乎全是失败路径，
+    // 而且每一条都断言 session 被**销毁**而不是允许重试。
+    {
+        const QByteArray peerRaw(32, '\x11');
+        const QString peerFp = afmu::Identity::toBase32(peerRaw);
+        const QByteArray localFp(32, '\x22');
+        auto nonce = [](char fill) { return QByteArray(32, fill); };
+        auto commitOf = [](const QByteArray &n) {
+            return QCryptographicHash::hash(n, QCryptographicHash::Sha256);
+        };
+
+        {
+            AuthRequests auth;
+            auth.setEnabled(true);
+            const QByteArray na = nonce('\x33');
+            const auto r = auth.createPairing(QStringLiteral("PC"), QStringLiteral("linux"),
+                                              QStringLiteral("10.0.0.5"), peerFp, commitOf(na));
+            check(!r.isNull(), "合法的 commit 应当开出 session");
+            check(r.isPairing(), "这是一条 v2 配对请求");
+            check(r.nonceB.size() == 32, "本机随机数应当是 32 字节");
+
+            const QString sas = auth.revealPairing(r.id, na, localFp);
+            check(!sas.isEmpty(), "reveal 应当算出比对码");
+            // 发起方那边角色对调算一次：指纹在 computeSas 里排序，两端必须落到同一个串。
+            // 落不到的话两个屏幕显示不同的码，用户只会理解成正在被攻击。
+            check(sas == afmu::computeSas(localFp, peerRaw, na, r.nonceB),
+                  "两端算出的比对码必须相同");
+            check(auth.pending().sas == sas, "比对码要存进待决请求，界面才显示得出来");
+        }
+
+        {
+            // commit 存在的全部意义。没有它，攻击者中继完看到 n_b，再去搜一个
+            // 能凑出它想要的码的 n_a —— 8 字符的码约 2²⁰ 次，单核一两分钟。
+            AuthRequests auth;
+            auth.setEnabled(true);
+            const auto r = auth.createPairing(QStringLiteral("PC"), QStringLiteral("linux"),
+                                              QStringLiteral("10.0.0.5"), peerFp,
+                                              commitOf(nonce('\x33')));
+            check(auth.revealPairing(r.id, nonce('\x99'), localFp).isEmpty(),
+                  "对不上的 nonce 必须拒绝");
+            // 是**销毁**不是拒绝：拿正确的 nonce 再来一次也必须失败，
+            // 否则攻击者就是可以一直猜下去。
+            check(auth.revealPairing(r.id, nonce('\x33'), localFp).isEmpty(),
+                  "commit 对不上之后整个 session 作废，正确的 nonce 也救不回来");
+            check(auth.pending().isNull(), "作废之后不该还留着待决请求");
+        }
+
+        {
+            AuthRequests auth;
+            auth.setEnabled(true);
+            check(auth.createPairing(QStringLiteral("PC"), QStringLiteral("linux"),
+                                     QStringLiteral("10.0.0.5"), peerFp, QByteArray(31, '\x00'))
+                      .isNull(),
+                  "commit 长度不对不该开 session");
+            // 指纹为空 = 握手没给出任何可授权的东西。配对表存的就是指纹，
+            // 「和某个人配对」不是一件成立的事。
+            check(auth.createPairing(QStringLiteral("PC"), QStringLiteral("linux"),
+                                     QStringLiteral("10.0.0.5"), QString(),
+                                     commitOf(nonce('\x33')))
+                      .isNull(),
+                  "没有指纹不该开 session");
+        }
+
+        {
+            AuthRequests auth;
+            auth.setEnabled(true);
+            const QByteArray na = nonce('\x33');
+            const auto r = auth.createPairing(QStringLiteral("PC"), QStringLiteral("linux"),
+                                              QStringLiteral("10.0.0.5"), peerFp, commitOf(na));
+            check(auth.revealPairing(QStringLiteral("不是这个 session"), na, localFp).isEmpty(),
+                  "错的 session id 什么都不该发生");
+            check(!auth.revealPairing(r.id, na, localFp).isEmpty(),
+                  "别人猜错不该影响真正的 session");
+        }
+
+        {
+            // 接到了自己，或者有一端搞错了。两种情况都不该产出一个看起来正常的码
+            // 让用户去「比对成功」。
+            AuthRequests auth;
+            auth.setEnabled(true);
+            const QByteArray na = nonce('\x33');
+            const auto r = auth.createPairing(QStringLiteral("PC"), QStringLiteral("linux"),
+                                              QStringLiteral("10.0.0.5"),
+                                              afmu::Identity::toBase32(localFp), commitOf(na));
+            check(auth.revealPairing(r.id, na, localFp).isEmpty(), "指纹和自己相同时不出码");
+            check(auth.pending().isNull(), "而且整个 session 作废");
+        }
+
+        {
+            // v1 和 v2 共用同一个待决位置：分开算的话两边各来一个就同时弹两个窗，
+            // 「一次只受理一个」也就白写了。
+            AuthRequests auth;
+            auth.setEnabled(true);
+            check(!auth.createPairing(QStringLiteral("PC"), QStringLiteral("linux"),
+                                      QStringLiteral("10.0.0.5"), peerFp, commitOf(nonce('\x33')))
+                       .isNull(),
+                  "第一条应当开得出来");
+            check(auth.create(QStringLiteral("别的"), QStringLiteral("linux"),
+                              QStringLiteral("10.0.0.9"), 8765, QStringLiteral("1234"))
+                      .isNull(),
+                  "已有待决请求时 v1 请求应当被拒");
+            check(auth.createPairing(QStringLiteral("别的"), QStringLiteral("linux"),
+                                     QStringLiteral("10.0.0.9"), peerFp, commitOf(nonce('\x55')))
+                      .isNull(),
+                  "已有待决请求时 v2 配对也应当被拒");
+        }
+
+        {
+            AuthRequests auth;
+            auth.setEnabled(false);
+            check(auth.createPairing(QStringLiteral("PC"), QStringLiteral("linux"),
+                                     QStringLiteral("10.0.0.5"), peerFp, commitOf(nonce('\x33')))
+                      .isNull(),
+                  "开关关掉时配对也一并关掉");
+        }
     }
 
     // ------------------------------------------------------------
