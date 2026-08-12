@@ -501,6 +501,12 @@ void AppController::pairingCommit()
     q.addQueryItem(QStringLiteral("commit"), QString::fromLatin1(commit.toHex()));
     q.addQueryItem(QStringLiteral("name"), m_config->deviceName());
     q.addQueryItem(QStringLiteral("os"), QStringLiteral("linux"));
+    // 本机服务端口。对端从 socket 只看得到我们的 IP 和**源**端口，不知道我们在哪个
+    // 端口收东西 —— 不给的话它存下的地址提示是猜的，将来反向连过来就连不上。
+    // v1 的 /api/authorize 本来就带这个，v2 漏了。
+    q.addQueryItem(QStringLiteral("port"),
+                   QString::number(m_server->isListening() ? m_server->actualPort()
+                                                           : quint16(m_config->serverPort())));
 
     QNetworkReply *reply = m_client->post(QStringLiteral("/api/pair-v2"), q);
     connect(reply, &QNetworkReply::finished, this, [this, reply] {

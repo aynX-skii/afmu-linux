@@ -137,7 +137,7 @@ AuthRequests::Request AuthRequests::create(const QString &name, const QString &o
 
 AuthRequests::Request AuthRequests::createPairing(const QString &name, const QString &os,
                                                   const QString &host, const QString &peerFp,
-                                                  const QByteArray &commit)
+                                                  const QByteArray &commit, int port)
 {
     if (!m_enabled)
         return {};
@@ -161,6 +161,7 @@ AuthRequests::Request AuthRequests::createPairing(const QString &name, const QSt
         r.name = host;
     r.os = displayText(os, 16);
     r.host = host;
+    r.port = port;
     r.createdAt = now;
     r.status = Status::Pending;
     r.peerFp = peerFp;

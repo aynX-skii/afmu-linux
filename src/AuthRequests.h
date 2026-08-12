@@ -76,7 +76,7 @@ public:
      * `peerFp` 必须来自 TLS 握手，绝不能取请求体里对端自报的值。
      */
     Request createPairing(const QString &name, const QString &os, const QString &host,
-                          const QString &peerFp, const QByteArray &commit);
+                          const QString &peerFp, const QByteArray &commit, int port = 0);
 
     /**
      * v2 配对的第 2 步：对端揭示 `n_a`。

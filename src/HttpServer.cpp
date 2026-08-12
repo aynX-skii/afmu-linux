@@ -880,9 +880,14 @@ private:
             }
             // 对端的指纹取自握手，**不取请求里自报的**：自报的东西在这一层
             // 一个字都不能信。
+            // 端口取对端自报的（见客户端那边的说明）。自报的东西只用来当**重连提示**，
+            // 不参与任何判定 —— 报错了的后果是将来连不上，失败方向是安全的。
+            const int peerPort =
+                param(QStringLiteral("port")).toInt();
             const AuthRequests::Request r =
                 auth->createPairing(param(QStringLiteral("name")), param(QStringLiteral("os")),
-                                    peerHost(), m_peerFp, commit);
+                                    peerHost(), m_peerFp, commit,
+                                    (peerPort > 0 && peerPort <= 65535) ? peerPort : 0);
             if (r.isNull()) {
                 const int wait = auth->retryAfterSec(peerHost());
                 QList<QPair<QByteArray, QByteArray>> extra;
