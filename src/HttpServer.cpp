@@ -815,6 +815,13 @@ private:
      */
     void handlePairV2()
     {
+        // 明文下配对没有意义：没有证书可授权，整个交换还会被旁听全看去。下面的路由表
+        // 从明文路径也能走到这里（必须能，否则配对中途变成已配对的对端就轮询不到），
+        // 所以在这里明说，而不是让它在更深处以某种难懂的方式失败。
+        if (!m_tls) {
+            sendJson(400, errObj(QStringLiteral("pairing requires an encrypted connection")));
+            return;
+        }
         AuthRequests *auth = m_server->authRequests();
         if (!auth) {
             sendJson(404, errObj(QStringLiteral("unknown endpoint")));
