@@ -358,6 +358,27 @@ int main(int argc, char **argv)
                      qPrintable(afmu::rollingId(fp1, 0)));
     }
 
+    // ------------------------------------------------------------ 指纹的分隔符
+    //
+    // 指纹是复制粘贴出来的东西，而两个平台对「什么算空白」的判定不一样：
+    // QChar::isSpace() 认 U+00A0 / U+2007 / U+202F，Kotlin 的 isWhitespace() 不认。
+    // 两端各问各的平台，同一个字符串就会得到两种答案 —— 偏偏它是决定
+    // 「你在跟哪台设备说话」的那个值。所以跳过哪些字符是显式定死的。
+    {
+        const QString grouped = afmu::Identity::group(a);
+        check(PeerStore::normalizeFingerprint(grouped) == a, "普通空格分组能读回");
+        check(PeerStore::normalizeFingerprint(a.left(26) + QStringLiteral("-") + a.mid(26)) == a,
+              "连字符也当分隔符");
+        for (const auto sep : {QChar(0x00A0), QChar(0x2007), QChar(0x202F), QChar(0x3000)}) {
+            const QString withSep = a.left(26) + sep + a.mid(26);
+            check(PeerStore::normalizeFingerprint(withSep) == a,
+                  "各种空格变体都要跳过（两端必须给同一个答案）");
+        }
+        // 字母表外的字符仍然整串作废，不是「跳过看不懂的」
+        check(PeerStore::normalizeFingerprint(a.left(26) + QStringLiteral("!") + a.mid(26)).isEmpty(),
+              "非分隔符的杂字符必须整串作废");
+    }
+
     // ------------------------------------------------------------ 严格 hex
     //
     // commit / na 是对端**还没被授权**时就能从查询参数塞进来的东西，而两端对

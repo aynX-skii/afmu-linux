@@ -93,6 +93,29 @@ QString Identity::toBase32(const QByteArray &raw)
     return out;
 }
 
+namespace {
+
+/**
+ * 读回指纹时跳过的字符：我们自己打印的那些，加上复制粘贴容易带进来的几种空格。
+ *
+ * 显式列出来，而不是问平台「这是不是空白」—— 两个平台的答案不一样：
+ * `QChar::isSpace()` 认 U+00A0 / U+2007 / U+202F，Kotlin 的 `Char.isWhitespace()` 不认。
+ * 于是带不间断空格的指纹在 Linux 这边解得出、在手机上被拒 —— 同一个字符串两种答案，
+ * 而它偏偏是决定「你在跟哪台设备说话」的那个值。
+ */
+bool isFingerprintSeparator(QChar ch)
+{
+    switch (ch.unicode()) {
+    case u' ': case u'\t': case u'\n': case u'\r': case u'-':
+    case 0x00A0: case 0x2007: case 0x202F: case 0x3000:
+        return true;
+    default:
+        return false;
+    }
+}
+
+} // namespace
+
 QByteArray Identity::fromBase32(const QString &text)
 {
     static const QByteArray alphabet(kFingerprintAlphabet);
@@ -100,8 +123,8 @@ QByteArray Identity::fromBase32(const QString &text)
     quint32 buffer = 0;
     int bits = 0;
     for (const QChar ch : text) {
-        if (ch.isSpace() || ch == QLatin1Char('-'))
-            continue; // 展示形式里的分组空格
+        if (isFingerprintSeparator(ch))
+            continue; // 展示形式里的分组空格，以及复制粘贴容易带进来的几种
         const int idx = alphabet.indexOf(ch.toUpper().toLatin1());
         if (idx < 0)
             return {}; // 不在字母表里 —— 整串作废，别猜
