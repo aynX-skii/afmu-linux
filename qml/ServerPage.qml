@@ -59,19 +59,45 @@ Item {
             }
         }
 
-        // ------------------------------------------------- 未加密提示（常驻）
-        // 服务开着就一直显示。v1 是明文 HTTP —— 这件事只写在文档和「设置」页里的话，
-        // 真正在决定「要不要开着」的那个人根本看不到。
-        // 刻意不做成可关闭的横幅或一次性弹窗：服务没停这件事就没变，
-        // 而三周前点掉的一个提示不算今天的知情同意。
+        // ------------------------------------------------- 传输状态提示（常驻）
+        //
+        // 服务开着就一直显示，且不可关闭：服务没停这件事就没变，而三周前点掉的一个
+        // 提示不算今天的知情同意。
+        //
+        // **但它必须说实话。** 这条横幅原来是无条件的「未加密」—— v1 时代那是对的，
+        // 现在零信任模式下明文根本进不来，那句话就成了假的。一条恒真的警告等于
+        // 训练用户忽略它，下次它真的该响的时候没人会看。所以它跟着实际生效的状态走，
+        // 而「实际生效」和设置页上的开关不是一回事：零信任会压掉另外两个。
         Rectangle {
+            id: transportNote
             Layout.fillWidth: true
             visible: App.serverRunning
             Layout.preferredHeight: warnRow.implicitHeight + Theme.pad
             radius: Theme.radius
-            color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.12)
+
+            // 和 AppController::applyServerContext 里的判断保持一致
+            readonly property bool plaintextOn: App.config.allowLegacyPlaintext
+                                                && !App.config.zeroTrustMode
+            readonly property bool guestOn: App.config.guestMode && !App.config.zeroTrustMode
+
+            readonly property color tone: !App.tlsReady || plaintextOn ? Theme.warning
+                                        : guestOn ? Theme.warning : Theme.success
+
+            readonly property string title:
+                  !App.tlsReady ? Tr.t("未加密")
+                : plaintextOn   ? Tr.t("明文连接仍然开着")
+                : guestOn       ? Tr.t("只接受加密连接（含访客）")
+                                : Tr.t("只接受已配对设备的加密连接")
+
+            readonly property string detail:
+                  !App.tlsReady ? Tr.t("流量是明文 HTTP。同一网络里的任何人都能看到文件名和文件内容。请只在信任的网络里使用。")
+                : plaintextOn   ? Tr.t("已配对的设备走加密，其余连接仍是明文 —— 那些文件名和内容同一网络里的人都看得到。")
+                : guestOn       ? Tr.t("流量已加密，挡得住偷听。但访客模式开着：没配对过的设备凭访问密码也能进，它们的身份没有经过验证。")
+                                : Tr.t("只有配对表里的设备连得上，认证靠双方的密钥。这是 v2 完整的那道防线。")
+
+            color: Qt.rgba(tone.r, tone.g, tone.b, 0.12)
             border.width: 1
-            border.color: Qt.rgba(Theme.warning.r, Theme.warning.g, Theme.warning.b, 0.35)
+            border.color: Qt.rgba(tone.r, tone.g, tone.b, 0.35)
 
             RowLayout {
                 id: warnRow
@@ -80,8 +106,8 @@ Item {
                 spacing: Theme.pad / 2
 
                 AppIcon {
-                    name: "alert"
-                    color: Theme.warning
+                    name: transportNote.tone === Theme.success ? "lock" : "alert"
+                    color: transportNote.tone
                     Layout.alignment: Qt.AlignTop
                 }
 
@@ -90,14 +116,14 @@ Item {
                     spacing: 2
 
                     Text {
-                        text: Tr.t("未加密")
+                        text: transportNote.title
                         font.pixelSize: Theme.fsSm
                         font.bold: true
-                        color: Theme.warning
+                        color: transportNote.tone
                     }
                     Text {
                         Layout.fillWidth: true
-                        text: Tr.t("流量是明文 HTTP。同一网络里的任何人都能看到文件名和文件内容。请只在信任的网络里使用。")
+                        text: transportNote.detail
                         font.pixelSize: Theme.fsSm
                         color: Theme.textFaint
                         wrapMode: Text.WordWrap

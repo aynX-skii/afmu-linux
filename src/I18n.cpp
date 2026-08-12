@@ -60,6 +60,18 @@ const Entry kEnglish[] = {
     {"明文 HTTP，token 只防误连，不要在公共 Wi-Fi 上使用",
      "Plain HTTP — the token only prevents mistaken connections. Not for public Wi-Fi."},
     {"未加密", "Unencrypted"},
+    {"明文连接仍然开着", "Plaintext connections are still open"},
+    {"已配对的设备走加密，其余连接仍是明文 —— 那些文件名和内容同一网络里的人都看得到。",
+     "Paired devices connect over an encrypted link; everything else is still plaintext — "
+     "those file names and contents are visible to anyone on the network."},
+    {"只接受加密连接（含访客）", "Encrypted connections only (guests included)"},
+    {"流量已加密，挡得住偷听。但访客模式开着：没配对过的设备凭访问密码也能进，它们的身份没有经过验证。",
+     "Traffic is encrypted, which stops eavesdropping. But guest mode is on: devices you have "
+     "never paired with can get in with the access password, and their identity is unverified."},
+    {"只接受已配对设备的加密连接", "Encrypted connections from paired devices only"},
+    {"只有配对表里的设备连得上，认证靠双方的密钥。这是 v2 完整的那道防线。",
+     "Only devices in the pairing table can connect, authenticated by both devices' keys. "
+     "This is the full v2 guarantee."},
     {"允许被发现", "Make discoverable"},
     {"可被发现 · ", "Discoverable · "},
     {"允许被发现，%1 秒后自动恢复", "Discoverable — back to normal in %1s"},
