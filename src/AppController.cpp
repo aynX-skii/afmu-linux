@@ -86,7 +86,10 @@ AppController::AppController(QObject *parent)
         if (m_devices->rowCount() > 0)
             return;
         // 很多路由器会吃掉广播，但单播 TCP 是通的：复用上次连过的地址
-        if (!m_connected && !m_config->lastHost().isEmpty() && !m_config->peerToken().isEmpty()) {
+        // 有 token，或者配对表里有设备 —— 后者是 v2 的情况，它压根不需要 token，
+        // 而对面正可能是其中一台换了地址（见 PeerClient::discovering）。
+        if (!m_connected && !m_config->lastHost().isEmpty()
+            && (!m_config->peerToken().isEmpty() || m_peers->rowCount() > 0)) {
             appendLog(T(QStringLiteral("没收到广播应答，复用上次地址 %1:%2"))
                           .arg(m_config->lastHost())
                           .arg(m_config->lastPort()));
@@ -124,6 +127,12 @@ AppController::AppController(QObject *parent)
     // 配对模式下握手完成，拿到对端指纹。SAS 要用它，配对成功也要用它。
     connect(m_client, &PeerClient::peerIdentified, this,
             [this](const QString &fp) { m_pairPeerFp = fp; });
+
+    // 手工输的地址原来是一台配过对的设备。它已经就地变成钉扎连接了，说一声就好。
+    connect(m_client, &PeerClient::recognisedAtNewAddress, this, [this](const QString &name) {
+        appendLog(T(QStringLiteral("认出这是已配对的 %1（换了地址），本次连接已加密并钉扎"))
+                      .arg(name));
+    });
 
     connect(m_client, &PeerClient::pinningFailed, this,
             [this](const QString &expected, const QString &actual) {
@@ -844,7 +853,12 @@ void AppController::fetchInfo()
         return;
     // token 是空的就别白跑一趟 401：直接请对端弹窗授权，用户在手机上点一下即可。
     // 手抄 token 的老路子仍然有效，填了就走填的那个。
-    if (m_config->peerToken().isEmpty()) {
+    //
+    // 但走加密的连接不在此列：**握手成功 + 指纹在配对表里就是认证本身**（v2 §5.2），
+    // 没有任何 token 需要交换。在这里拦下来的话，v2 会比 v1 还难用 —— 提示用户去填
+    // 一个对面已经不再接受的密码。「先试一下加密」的连接也放行：它要么认出对方
+    // 从而变成钉扎的，要么在下面吃一个 401 再走授权那条路。
+    if (m_config->peerToken().isEmpty() && !m_client->secure()) {
         appendLog(T(QStringLiteral("没有对端 token，改为发起授权请求")));
         requestAuthorization(m_client->host(), m_client->port(), m_peerName, m_peerOs);
         return;
@@ -860,10 +874,31 @@ void AppController::fetchInfo()
             m_connected = false;
             emit peerChanged();
             const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            // 「先试一下加密」没试成：对面多半只会 v1。关掉再走一次明文。
+            //
+            // 只在这一个探测请求上重试，别的请求路径一概不碰 —— 一个会自己换协议
+            // 重发的客户端，正是降级攻击最想要的东西。这里之所以可以，是因为它
+            // **只发生在连接建立那一刻**，而且只往「本来就没有钉扎期望」的方向退。
+            if (m_client->discovering()) {
+                m_client->stopDiscovering();
+                appendLog(T(QStringLiteral("对端似乎不支持加密连接，退回明文重试一次")));
+                fetchInfo();
+                return;
+            }
             // token 过期 / 手机上重新生成过：与其让用户去抄新的，不如直接请对方授权
             if (code == 401 && !m_authPending) {
                 appendLog(T(QStringLiteral("token 已失效，改为发起授权请求")));
                 requestAuthorization(m_client->host(), m_client->port(), m_peerName, m_peerOs);
+                return;
+            }
+            // 配对表里的对端必须走 v2，握手不成就是不成，**绝不退回明文**（v2 §8.1 第 1 条）。
+            // 但这时候界面上只会看到一句「连接关闭」，和网线松了长得一模一样 ——
+            // 这是一次**有意的拒绝**，得说出来，否则用户会去查网络、查防火墙。
+            if (!m_client->expectedFingerprint().isEmpty() && code == 0) {
+                appendLog(T(QStringLiteral("%1 在配对表里，只接受加密连接，"
+                                           "而这次握手没成 —— 已拒绝，不会退回明文"))
+                              .arg(m_peerName));
+                notify(T(QStringLiteral("这台设备只接受加密连接，握手失败，已拒绝")), true);
                 return;
             }
             notify(T(QStringLiteral("连接失败：%1")).arg(PeerClient::errorFrom(reply, body)), true);

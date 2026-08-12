@@ -38,8 +38,28 @@ public:
      * 之后**绝不会**因为握手失败而退回明文（§8.1 第 1 条）——
      * 那正是降级攻击想要的，也是这一层唯一真正的防线。
      */
-    bool secure() const { return !m_expectedFp.isEmpty() || m_pairing; }
+    bool secure() const { return !m_expectedFp.isEmpty() || m_pairing || m_discover; }
     QString expectedFingerprint() const { return m_expectedFp; }
+
+    /**
+     * 「先试一下加密」模式：地址在配对表里查不到，但本机有身份、表里也有设备，
+     * 所以对面**有可能**是某台已配对设备只是换了地址。
+     *
+     * 地址反查在正常路径上够用 —— 发现协议的滚动 `rid` 会在见到设备时刷新地址提示
+     * （v2 §6.1）。它兜不住的是「用户手工输了一个发现没见过的地址」：那时候查不到
+     * 记录，于是连接会退回明文，而对面可能正是你早就配过的那台设备。
+     *
+     * 所以这里不带期望值地先走一次 TLS，握手完成后按**指纹**认人：
+     *   · 指纹在表里 → 当场变成钉扎连接，并刷新地址提示，下次直接命中；
+     *   · 指纹不在表里 → 对面是生人，这条连接加密但未认证，和 v1 同级（仍要 token）；
+     *   · 握手失败 → 对面多半只会 v1，调用方退回明文重试一次。
+     *
+     * 判定发生在 `encrypted` 上，也就是**任何请求数据发出之前** —— 和正常钉扎
+     * 是同一个时机，不是 §5.1 说的那种「先连上再验」。
+     */
+    bool discovering() const { return m_discover; }
+    /** 握手失败之后关掉它，好让调用方按明文重试一次。 */
+    void stopDiscovering() { m_discover = false; }
 
     /**
      * 配对模式：走 TLS，但**不比对指纹** —— 因为此刻还不知道该比什么，
@@ -86,6 +106,12 @@ signals:
     /** 配对模式下握手完成，这是对端的指纹。空表示对端没出示证书。 */
     void peerIdentified(const QString &fingerprint);
 
+    /**
+     * 手工输的地址原来是一台已配对设备（换了 IP）。连接已经就地升级成钉扎的，
+     * 地址提示也刷新了 —— 说出来只是让用户知道这次是加密且认过身份的。
+     */
+    void recognisedAtNewAddress(const QString &name);
+
 private:
     void checkPinning(QNetworkReply *reply);
     QNetworkReply *track(QNetworkReply *reply);
@@ -102,4 +128,6 @@ private:
     QString m_expectedFp;
     /** 配对模式：走 TLS 但不比对。见 setPairingPeer。 */
     bool m_pairing = false;
+    /** 见 discovering()：不带期望值先试 TLS，握手后按指纹认人。 */
+    bool m_discover = false;
 };

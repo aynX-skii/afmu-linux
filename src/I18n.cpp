@@ -60,6 +60,17 @@ const Entry kEnglish[] = {
     {"明文 HTTP，token 只防误连，不要在公共 Wi-Fi 上使用",
      "Plain HTTP — the token only prevents mistaken connections. Not for public Wi-Fi."},
     {"未加密", "Unencrypted"},
+    {"%1 在配对表里，只接受加密连接，而这次握手没成 —— 已拒绝，不会退回明文",
+     "%1 is in the pairing table and only accepts encrypted connections; the handshake did "
+     "not succeed, so the connection was refused rather than downgraded"},
+    {"这台设备只接受加密连接，握手失败，已拒绝",
+     "This device only accepts encrypted connections. The handshake failed, so the "
+     "connection was refused."},
+    {"对端似乎不支持加密连接，退回明文重试一次",
+     "That peer does not seem to speak encryption — retrying once in plaintext"},
+    {"认出这是已配对的 %1（换了地址），本次连接已加密并钉扎",
+     "Recognised %1 from the pairing table at a new address; this connection is encrypted "
+     "and pinned"},
     {"明文连接仍然开着", "Plaintext connections are still open"},
     {"已配对的设备走加密，其余连接仍是明文 —— 那些文件名和内容同一网络里的人都看得到。",
      "Paired devices connect over an encrypted link; everything else is still plaintext — "

@@ -51,7 +51,7 @@ void PeerClient::setIdentity(const afmu::Identity *id, PeerStore *peers)
  */
 void PeerClient::checkPinning(QNetworkReply *reply)
 {
-    if (!reply || (m_expectedFp.isEmpty() && !m_pairing))
+    if (!reply || (m_expectedFp.isEmpty() && !m_pairing && !m_discover))
         return;
 
     const QString actual = afmu::peerFingerprint(reply->sslConfiguration().peerCertificate());
@@ -65,6 +65,20 @@ void PeerClient::checkPinning(QNetworkReply *reply)
             return;
         }
         emit peerIdentified(actual);
+        return;
+    }
+
+    if (m_discover) {
+        // 不带期望值连上来的。认不认得出，全看指纹在不在表里 —— 地址一个字都不算。
+        m_discover = false;
+        if (!actual.isEmpty() && m_peers && m_peers->isPaired(actual)) {
+            m_expectedFp = actual;            // 从这一刻起这条会话就是钉扎的
+            m_peers->noteSeen(actual, m_host, m_port);
+            emit recognisedAtNewAddress(m_peers->find(actual).name);
+            return;
+        }
+        // 生人。连接是加密的，但对面是谁无从谈起 —— 和 v1 同级，仍然要 token。
+        // 不中止：这正是「连一台还没配对的设备」，本来就该允许。
         return;
     }
 
@@ -103,11 +117,17 @@ void PeerClient::setPeer(const QString &host, int port)
     // 地址只用来**挑候选**，不用来判定身份：挑错了的后果是握手时指纹对不上、
     // 连接被拒，失败方向是安全的。反过来「地址对上了就信任」才是错的。
     m_expectedFp.clear();
+    m_discover = false;
     if (!m_identity || !m_peers)
         return;
     const PeerRecord known = m_peers->findByAddressHint(host, port);
-    if (!known.fp.isEmpty())
+    if (!known.fp.isEmpty()) {
         m_expectedFp = known.fp;
+        return;
+    }
+    // 查不到记录，但表里有设备 —— 对面可能是其中一台换了地址（见 discovering()）。
+    // 先试加密，握手完了按指纹认人。表是空的就没有认人的余地，别白试。
+    m_discover = m_peers->rowCount() > 0;
 }
 
 void PeerClient::setToken(const QString &token)
