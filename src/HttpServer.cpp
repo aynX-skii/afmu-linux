@@ -776,6 +776,12 @@ private:
         }
         m_server->throttle().noteSuccess(peer);
 
+        // 也在这里路由一次，和上面未配对分支里的那次并存，是有意的：用户点「允许」
+        // 那一刻对端就**变成已配对**，它随后的轮询走的是已配对连接。只在上面路由的话，
+        // 轮询会撞 404，发起方于是把一次成功的配对报成超时 —— 而会不会撞上，取决于
+        // 客户端有没有复用连接，这不是任何一端该依赖的东西。
+        if (m_path == QLatin1String("/api/pair-v2"))
+            return handlePairV2();
         if (m_path == QLatin1String("/api/info"))
             return handleInfo();
         if (m_path == QLatin1String("/api/list"))
