@@ -95,6 +95,18 @@ class AppController : public QObject
     Q_PROPERTY(bool authIsPairing READ authIsPairing NOTIFY authChanged)
     Q_PROPERTY(QString authSas READ authSas NOTIFY authChanged)
     Q_PROPERTY(QString authPeerFingerprint READ authPeerFingerprint NOTIFY authChanged)
+    /**
+     * 失败原因。非空 = 上一次请求没成，而且用户还没确认看到。
+     *
+     * 失败**必须留在弹窗里**，不能只发一条会自己消失的提示条：最快的那种失败
+     * （对端只提供明文，TLS 握手当场就崩）从点击到结束只要 86 毫秒 —— 弹窗一闪
+     * 而过，用户的视线还在屏幕中间，而唯一的解释出现在窗口底部并在 5 秒后消失。
+     * 结果就是"点了没反应"。而失败是这条流程的常态：对端没开加密、服务没起、
+     * 对方拒绝、超时，每一种都得说清楚该去做什么。
+     */
+    Q_PROPERTY(QString authError READ authError NOTIFY authChanged)
+    /** 出错的那一次是配对还是授权。失败之后 authIsPairing 已经清掉了，措辞得靠它。 */
+    Q_PROPERTY(bool authErrorIsPairing READ authErrorIsPairing NOTIFY authChanged)
 
     // 反过来：别的设备来请求连接本机，由用户在本机确认（Linux ↔ Linux 靠这条打通）
     Q_PROPERTY(bool incomingAuthPending READ incomingAuthPending NOTIFY incomingAuthChanged)
@@ -166,6 +178,8 @@ public:
     bool authIsPairing() const { return m_authIsPairing; }
     QString authSas() const { return afmu::formatSas(m_pairSas); }
     QString authPeerFingerprint() const { return afmu::Identity::group(m_pairPeerFp); }
+    QString authError() const { return m_authError; }
+    bool authErrorIsPairing() const { return m_authErrorPairing; }
 
     bool incomingAuthPending() const;
     QString incomingAuthName() const;
@@ -208,6 +222,8 @@ public slots:
      */
     void requestPairing(const QString &host, int port, const QString &name, const QString &os);
     void cancelAuthorization();
+    /** 用户看过失败原因了，把弹窗收掉。见 authError。 */
+    void dismissAuthError();
 
     /** 别的设备来敲门，用户在本机点了「允许」/「拒绝」。 */
     void approveIncomingAuth();
@@ -256,6 +272,11 @@ private:
     void pairingCommit();
     void pairingReveal();
     void finishAuthorization(const QString &status);
+    /**
+     * 结束状态 → 一句给用户看的话。空串 = 这次不算失败（成功、或者用户自己取消，
+     * 两种都不需要在弹窗里解释）。
+     */
+    static QString failureMessage(const QString &status, bool wasPairing);
     /** 授权通过后把本机的地址和 token 回填给对端，一次配对打通两个方向。 */
     void pushPairBack();
     /** 见 forgotUsPeer。只在值真的变了时发信号，免得每次连接都刷一遍界面。 */
@@ -306,6 +327,8 @@ private:
     QString m_authOs;
     int m_authPort = 0;
     int m_authRemaining = 0;
+    QString m_authError;             // 见 authError，空 = 没有待确认的失败
+    bool m_authErrorPairing = false; // 出错的那次是不是配对
 
     // 配对表里有它，但它那边已经不认得本机了。见 forgotUsPeer。
     QString m_forgotUsPeer;

@@ -405,7 +405,10 @@ void AppController::requestAuthorization(const QString &host, int port, const QS
     m_authRemaining = afmu::kAuthTimeoutSec;
     m_authStatus = QStringLiteral("sending");
     m_authPending = true;
+    m_authError.clear(); // 上一次的失败被这一次顶掉
     emit authChanged();
+    // 倒计时从**按下按钮**这一刻开始走，不是从对端第一次应答开始。见 pollAuthorization。
+    m_authTimer->start();
 
     // 下面要把本机端口报给对端，报之前得保证那个端口真有人听。
     ensureServerRunning();
@@ -458,7 +461,8 @@ void AppController::requestAuthorization(const QString &host, int port, const QS
         m_authStatus = QStringLiteral("pending");
         emit authChanged();
         appendLog(T(QStringLiteral("已向 %1 发起授权请求，确认码 %2")).arg(m_authTarget, m_authCode));
-        m_authTimer->start();
+        // 定时器在发请求那一刻就起来了，这里不用再 start —— 再 start 一次只会
+        // 把当前这一秒重新计起。轮询从下一跳自然开始（那时 request id 已经有了）。
     });
 }
 
@@ -500,7 +504,10 @@ void AppController::requestPairing(const QString &host, int port, const QString 
     // 换一个就等于允许在看到 n_b 之后改主意，commit 这一步就白做了（§4.2.2）。
     m_pairNonceA.resize(32);
     QRandomGenerator::system()->generate(m_pairNonceA.begin(), m_pairNonceA.end());
+    m_authError.clear(); // 上一次的失败被这一次顶掉
     emit authChanged();
+    // 同上：倒计时和超时都从按下按钮那一刻起算。见 pollAuthorization。
+    m_authTimer->start();
 
     ensureServerRunning();
     // 配对模式：走 TLS 但不比对指纹 —— 此刻还不知道该比什么，这正是要解决的问题。
@@ -617,18 +624,13 @@ void AppController::pairingReveal()
         emit authChanged();
         appendLog(T(QStringLiteral("配对比对码 %1，请与对端屏幕核对"))
                       .arg(afmu::formatSas(m_pairSas)));
-        m_authTimer->start();
+        // 同上：定时器早就在跑了，轮询从下一跳开始（那时 session 已经有了）。
     });
 }
 
 void AppController::pollPairing()
 {
-    if (--m_authRemaining <= 0) {
-        finishAuthorization(QStringLiteral("expired"));
-        return;
-    }
-    emit authChanged();
-
+    // 倒计时的递减和到期判断统一由 pollAuthorization 做，这里只负责问一次结果。
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("session"), m_pairSession);
     QNetworkReply *reply = m_client->get(QStringLiteral("/api/pair-v2"), q);
@@ -685,17 +687,28 @@ void AppController::pollAuthorization()
 {
     if (!m_authPending)
         return;
-    if (m_authIsPairing) {
-        pollPairing();
-        return;
-    }
-    if (m_authRequestId.isEmpty())
-        return;
+
+    // **倒计时从按下按钮那一刻起算，两条路径共用这一处递减。**
+    //
+    // 原来只有拿到 request id / session 之后才开始走，于是第一步还没回来时
+    // 界面上那句「剩余 60 秒」是**死的** —— 用户看着一个不动的数字，分不清是在
+    // 等网络还是已经卡死（对端手机息屏时这一步要等十几秒是常事）。更要命的是
+    // 那段时间里没有任何东西会收掉弹窗：兜底的只剩 QNAM 那个 60 秒**空闲**超时，
+    // 比协议这个 60 秒还长。
     if (--m_authRemaining <= 0) {
         finishAuthorization(QStringLiteral("expired"));
         return;
     }
     emit authChanged(); // 只为了刷新倒计时
+
+    // 第一步还没回来的时候只走倒计时，不轮询：没有 session / request id 可问。
+    if (m_authIsPairing) {
+        if (!m_pairSession.isEmpty())
+            pollPairing();
+        return;
+    }
+    if (m_authRequestId.isEmpty())
+        return;
 
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("request"), m_authRequestId);
@@ -746,6 +759,49 @@ void AppController::cancelAuthorization()
     finishAuthorization(QStringLiteral("cancelled"));
 }
 
+QString AppController::failureMessage(const QString &status, bool wasPairing)
+{
+    // granted 是成功；cancelled 是用户自己点的「取消」—— 两种都不用解释。
+    if (status == QLatin1String("granted") || status == QLatin1String("cancelled"))
+        return {};
+
+    if (wasPairing) {
+        if (status == QLatin1String("denied"))
+            return T(QStringLiteral("对方拒绝了本次配对"));
+        if (status == QLatin1String("expired"))
+            return T(QStringLiteral("配对超时，对方没有确认"));
+        if (status == QLatin1String("unsupported"))
+            return T(QStringLiteral("对端还不支持加密配对"));
+        if (status == QLatin1String("plaintext"))
+            // 握手就没成，对端那个端口上没有 TLS 在听。这在手机上是**一个开关**的事，
+            // 而不是"再试一次"能解决的 —— Android 一次只能提供一种协议（v2 §5.3），
+            // 明文开着的时候它压根不建 TLS。所以直接把要点哪里说出来。
+            return T(QStringLiteral("对端只提供明文连接，加密握手没能建立。请在手机的设置里"
+                                    "打开「只接受加密连接」，再点一次加密配对"));
+        if (status == QLatin1String("nolocaltls"))
+            return T(QStringLiteral("本机拿不出客户端证书，无法加密配对（明文配对没有意义）"));
+        if (status == QLatin1String("failed"))
+            return T(QStringLiteral("配对失败，原因见日志"));
+        return {};
+    }
+
+    if (status == QLatin1String("denied"))
+        return T(QStringLiteral("对方拒绝了本次连接"));
+    if (status == QLatin1String("expired"))
+        return T(QStringLiteral("授权请求已超时，对方没有确认"));
+    if (status == QLatin1String("unsupported"))
+        return T(QStringLiteral("对端不支持授权连接，请手动填写 token 或扫描本机二维码"));
+    if (status == QLatin1String("disabled"))
+        return T(QStringLiteral("对方关掉了「允许连接请求」，请在它的设置里打开"));
+    if (status == QLatin1String("guestoff"))
+        return T(QStringLiteral("对端关掉了访客模式，token 这条路已经不通 —— 请改用「加密配对」"));
+    if (status == QLatin1String("busy"))
+        return T(QStringLiteral("对方正在处理另一个连接请求，稍后再试"));
+    if (status == QLatin1String("failed"))
+        return T(QStringLiteral("授权请求失败，请稍后重试"));
+    return {};
+}
+
 void AppController::finishAuthorization(const QString &status)
 {
     m_authTimer->stop();
@@ -764,47 +820,33 @@ void AppController::finishAuthorization(const QString &status)
     // 配对模式下这条客户端不比对指纹，用完必须关掉，否则后面的正常请求
     // 会变成"加密但谁都信"。
     m_client->endPairing();
+
+    // **失败留在弹窗里，不再只发一条会自己消失的提示条。**
+    //
+    // 弹窗是 visible: App.authPending 绑上去的，所以只要这里把 pending 置假，
+    // 它当场就没了。而最快的一种失败（对端只提供明文，TLS 握手当场崩）从点击到
+    // 这一行只要 86 毫秒 —— 用户看到的就是"弹窗闪一下就没了、手机上什么都没弹"，
+    // 而唯一的解释在窗口底部那条 5 秒的提示条上，视线根本不在那儿。
+    // 失败是这条流程的常态，常态不能只有一个转瞬即逝的落点。
+    m_authErrorPairing = wasPairing;
+    m_authError = failureMessage(status, wasPairing);
     emit authChanged();
+    if (!m_authError.isEmpty())
+        appendLog(m_authError);
 
-    if (wasPairing) {
-        if (status == QLatin1String("denied"))
-            notify(T(QStringLiteral("对方拒绝了本次配对")), true);
-        else if (status == QLatin1String("expired"))
-            notify(T(QStringLiteral("配对超时，对方没有确认")), true);
-        else if (status == QLatin1String("unsupported"))
-            notify(T(QStringLiteral("对端还不支持加密配对")), true);
-        else if (status == QLatin1String("plaintext"))
-            // 握手就没成，对端那个端口上没有 TLS 在听。这在手机上是**一个开关**的事，
-            // 而不是"再试一次"能解决的 —— Android 一次只能提供一种协议（v2 §5.3），
-            // 明文开着的时候它压根不建 TLS。所以直接把要点哪里说出来。
-            notify(T(QStringLiteral("对端只提供明文连接，加密握手没能建立。请在手机的设置里"
-                                    "打开「只接受加密连接」，再点一次加密配对")),
-                   true);
-        else if (status == QLatin1String("nolocaltls"))
-            notify(T(QStringLiteral("本机拿不出客户端证书，无法加密配对（明文配对没有意义）")), true);
-        else if (status == QLatin1String("failed"))
-            notify(T(QStringLiteral("配对失败，原因见日志")), true);
-        return; // granted 那条已经在 pollPairing 里说过了
-    }
-
-    if (status == QLatin1String("granted")) {
+    // 成功那两句仍然走提示条：它不需要用户做任何事，也不该挡住下一步操作。
+    // （配对成功的那句已经在 pollPairing 里说过了。）
+    if (!wasPairing && status == QLatin1String("granted"))
         notify(T(QStringLiteral("已获授权，正在连接 %1")).arg(m_peerName), false);
-    } else if (status == QLatin1String("denied")) {
-        notify(T(QStringLiteral("对方拒绝了本次连接")), true);
-    } else if (status == QLatin1String("expired")) {
-        notify(T(QStringLiteral("授权请求已超时，对方没有确认")), true);
-    } else if (status == QLatin1String("unsupported")) {
-        notify(T(QStringLiteral("对端不支持授权连接，请手动填写 token 或扫描本机二维码")), true);
-    } else if (status == QLatin1String("disabled")) {
-        notify(T(QStringLiteral("对方关掉了「允许连接请求」，请在它的设置里打开")), true);
-    } else if (status == QLatin1String("guestoff")) {
-        notify(T(QStringLiteral("对端关掉了访客模式，token 这条路已经不通 —— 请改用「加密配对」")),
-               true);
-    } else if (status == QLatin1String("busy")) {
-        notify(T(QStringLiteral("对方正在处理另一个连接请求，稍后再试")), true);
-    } else if (status == QLatin1String("failed")) {
-        notify(T(QStringLiteral("授权请求失败，请稍后重试")), true);
-    }
+}
+
+void AppController::dismissAuthError()
+{
+    if (m_authError.isEmpty())
+        return;
+    m_authError.clear();
+    m_authErrorPairing = false;
+    emit authChanged();
 }
 
 // ------------------------------------------------- 别的设备来请求连接本机

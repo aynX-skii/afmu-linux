@@ -193,6 +193,7 @@ const Entry kEnglish[] = {
     {"比对码", "Compare code"},
     {"对方指纹", "Their fingerprint"},
     {"等待对方确认配对", "Waiting for them to confirm"},
+    {"配对没能完成", "Pairing did not go through"},
     {"已在 %1 上弹出配对确认，请核对下面的码再点「允许」。",
      "A pairing prompt is on %1. Check the code below matches, then tap Allow."},
     {"这个码是本机自己算出来的，不是对方发来的 —— 所以它和对方屏幕上的一致，",
@@ -465,7 +466,10 @@ const Entry kEnglish[] = {
 
     {"请求授权", "Ask to connect"},
     {"等待对方授权", "Waiting for approval"},
+    {"授权没能完成", "The request did not go through"},
     {"正在发送请求…", "Sending the request…"},
+    {"等对端应答…", "Waiting for their reply…"},
+    {"知道了", "Got it"},
     {"已在 %1 上弹出通知，请点「允许」。", "A prompt is showing on %1 — tap Allow."},
     {"确认码", "Confirmation code"},
     {"对方屏幕上显示的确认码必须和这里一致，否则不要同意。",
