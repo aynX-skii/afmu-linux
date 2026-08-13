@@ -65,10 +65,16 @@ void Config::load()
     ensure(QStringLiteral("autoStartServer"), true);
     // 默认开着：没有 token 的设备靠它来敲门，关掉之后只剩手抄 token / 扫码两条路
     ensure(QStringLiteral("allowAuthRequests"), true);
-    // 默认开着，而 v2 §8.1 写的是默认关 —— 那是 §8.2 第 3 阶段的事。
-    // 两端的 v2 都跑通了，但用户手上还有旧版本，现在翻默认值等于让他们突然连不上。
-    // 等旧版本换得差不多了再翻。
-    ensure(QStringLiteral("allowLegacyPlaintext"), true);
+    // 新装默认关，升级默认开 —— 和下面的 guestMode 用**同一个**判据（配置文件本来
+    // 在不在），因为它们本来就是同一个问题的两半（v2 §9.5）。
+    //
+    // 曾经无条件默认开，理由是「用户手上还有旧版本，翻默认值等于让他们突然连不上」。
+    // 那个理由只对升级安装成立：真·新装这一侧根本没有旧版本要照顾，而 guestMode
+    // 新装默认关，于是明文连接能到达的东西是空集 —— 未配对的明文请求一律 403，
+    // 端口白开着，只剩下被扫出来这一个作用。开箱即只加密才是 §8.2 第 3 阶段要的。
+    //
+    // Android 侧同一个决定见 Prefs.settleDefaults()：两端现在对新装的姿态一致。
+    ensure(QStringLiteral("allowLegacyPlaintext"), r.existed);
     // 零信任模式（草案 §9）：打开之后只认配对表里的设备，访客模式一并强制关闭。
     ensure(QStringLiteral("zeroTrustMode"), false);
     // 访客模式 = 浏览器界面 + 密码认证，也就是 v1 那套访问方式（草案 §9）。

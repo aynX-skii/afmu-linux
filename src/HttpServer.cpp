@@ -355,6 +355,18 @@ public:
             m_phase = Phase::Sniff;
             connect(m_sock, &QSslSocket::encrypted, this, &HttpConnection::onEncrypted);
             connect(m_sock, &QSslSocket::sslErrors, this, &HttpConnection::onSslErrors);
+        } else if (!m_server->allowLegacyPlaintext()) {
+            // 用户要的是只加密，而 TLS 没起来（身份生成失败、identity.pem 读不出来）。
+            // m_phase 的默认值是 Head，也就是「按明文解析」—— 什么都不做的话，这条
+            // 连接会被当成 v1 正常服务，而设置页上那个开关还写着「只接受加密连接」。
+            // 这正是 §8.1 第 1 条要挡的静默降级。宁可断开：AppController 启动时
+            // 已经把「身份不可用」的原因记进日志了。
+            emit m_server->logMessage(
+                T(QStringLiteral("%1 的连接已断开：只接受加密连接，但 TLS 未就绪"))
+                    .arg(m_sock->peerAddress().toString()));
+            m_sock->abort();
+            deleteLater();
+            return;
         }
 
         connect(m_sock, &QTcpSocket::readyRead, this, &HttpConnection::onReadyRead);
@@ -741,8 +753,15 @@ private:
         // /api/authorize 也一起挡住：它的作用是把 token 发出去，而这时候 token
         // 什么都打不开。发一个用不了的凭证，比明说「这条路关了」糟得多 ——
         // 用户会拿着它反复试，然后去查网络、查防火墙。
+        //
+        // 根路径横幅同样在内。它排在鉴权之前是对的（v1 §3.7 要求它免鉴权，
+        // 一致性套件也断言这一条），但「免鉴权」不等于「可以报设备名」：
+        // v2 §6.1 刚把 name/os 从发现应答里拿掉，只有用户显式开配对模式才带，
+        // §10 的泄露表也把设备名记在「不可见」那一行。访客模式关掉时还照报，
+        // 等于一个 TCP 连接就把 UDP 那边省下的元数据原样还回去。
         if (!ctx.guest && !m_peerPaired
-            && (m_path == QLatin1String("/api/authorize") || m_path == QLatin1String("/api/pair"))) {
+            && (m_path == QLatin1String("/api/authorize") || m_path == QLatin1String("/api/pair")
+                || m_path == QLatin1String("/") || m_path.isEmpty())) {
             sendJson(403,
                      errObj(QStringLiteral("guest mode is off; pair over an encrypted connection")));
             return;

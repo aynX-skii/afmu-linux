@@ -1,0 +1,113 @@
+name: CI
+
+# 两个实现不许漂移，而最容易漂的那次提交正是「只改了一端」的那次。
+# 这个 workflow 的作用就是让那次提交在合并前先红一下。
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 全部走发行版的包 —— 这是本项目的既定取向（README「构建」一节）：
+      # 装的都是 apt 直接有的东西，不引入任何需要单独安装的构建依赖。
+      # CI 用同一套包，是为了让「我这儿能编」和「CI 能编」是同一件事。
+      - name: 装依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qt6-base-dev qt6-declarative-dev libqrencode-dev libssl-dev \
+            cmake ninja-build g++
+
+      - name: 配置
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAFMU_TESTS=ON
+
+      # CMakeLists 常驻 -Wall -Wextra，整棵树本来就是零警告。
+      # 这里把警告抓出来单独打印：不阻断构建（不同 GCC 版本口味不一样），
+      # 但让新冒出来的一条在日志里看得见。
+      - name: 构建
+        run: cmake --build build 2>&1 | tee build.log
+
+      - name: 汇总编译警告
+        if: always()
+        run: |
+          if grep -q "warning:" build.log; then
+            echo "::warning::出现编译警告："
+            grep "warning:" build.log | sort -u
+          else
+            echo "零警告"
+          fi
+
+      - name: 单元测试
+        run: ctest --test-dir build --output-on-failure
+
+      # 协议一致性：起一个隔离实例，对着它跑 v1 和 v2 两套黑盒。
+      # 配置文件是现写的，serveRoots 指向临时目录 —— 用例里有「删 root 本身」
+      # 这一条，绝不能对着真实数据跑（见 AndroidFileManagerUtils/tests/README.md）。
+      - name: 取协议套件
+        uses: actions/checkout@v4
+        with:
+          repository: aynX-skii/AndroidFileManagerUtils
+          path: protocol
+          # 拉不到（仓库私有 / 改名）时不要静默跳过后面的步骤，让这一步就红
+          fetch-depth: 1
+
+      - name: 起隔离实例
+        run: |
+          S="${RUNNER_TEMP}/afmu"
+          mkdir -p "$S/cfg/afmu" "$S/share/inbox" "$S/share/extra"
+          cat > "$S/cfg/afmu/config.json" <<EOF
+          {
+            "deviceName": "ci-target",
+            "localToken": "test2test9",
+            "serverPort": 8865,
+            "inboxDir": "$S/share/inbox",
+            "downloadDir": "$S/share/inbox",
+            "serveRoots": ["$S/share/inbox", "$S/share/extra"],
+            "autoStartServer": true, "discoverable": true, "readOnly": false,
+            "allowAuthRequests": true, "guestMode": true,
+            "allowLegacyPlaintext": true, "zeroTrustMode": false
+          }
+          EOF
+          echo "AFMU_CFG=$S/cfg" >> "$GITHUB_ENV"
+          XDG_CONFIG_HOME="$S/cfg" QT_QPA_PLATFORM=offscreen ./build/afmu &
+          echo $! > "$S/pid"
+          for i in $(seq 1 40); do
+            curl -s -m 1 -o /dev/null "http://127.0.0.1:8865/api/info" && break
+            sleep 0.5
+          done
+
+      - name: v1 一致性
+        run: python3 protocol/tests/conformance.py --host 127.0.0.1 --port 8865 --token test2test9
+
+      # v2 的门禁用例要求访客模式关掉（访客模式是 §4.2.4 唯一的例外，开着时
+      # 门禁用例会全部跳过 —— 而「跳过」看起来和「通过」一样无害）。
+      # 所以换一份配置重起一次，而不是就着上面那个实例凑合。
+      - name: 换成只加密模式重起
+        run: |
+          S="${RUNNER_TEMP}/afmu"
+          kill "$(cat "$S/pid")" || true
+          sleep 1
+          python3 - "$S/cfg/afmu/config.json" <<'PY'
+          import json, sys
+          p = sys.argv[1]
+          d = json.load(open(p))
+          d["guestMode"] = False
+          d["allowLegacyPlaintext"] = False
+          json.dump(d, open(p, "w"))
+          PY
+          XDG_CONFIG_HOME="$S/cfg" QT_QPA_PLATFORM=offscreen ./build/afmu &
+          echo $! > "$S/pid"
+          sleep 5
+
+      - name: v2 一致性
+        run: python3 protocol/tests/conformance_v2.py --host 127.0.0.1 --port 8865
+
+      - name: 收尾
+        if: always()
+        run: kill "$(cat "${RUNNER_TEMP}/afmu/pid")" || true

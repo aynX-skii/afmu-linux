@@ -3,19 +3,22 @@
 FileBridge 的 Linux 桌面客户端：Qt 6 + Qt Quick，暗黑扁平风，标题栏 / 边框 / 圆角 / 缩放
 全部自绘（`Qt.FramelessWindowHint` + `startSystemMove` / `startSystemResize`）。
 
-协议严格按 `AndroidFileManagerUtils/docs/PROTOCOL.md` v1 实现，两半都做了：
+协议严格按 `AndroidFileManagerUtils/docs/PROTOCOL.md` 实现，v1 和 v2 都做了，
+客户端和服务端两半也都做了：
 
-- **客户端**：发现设备 → 浏览手机目录 → 下载（带断点续传）/ 上传
-- **服务端**：本机开同协议的 HTTP 服务，手机可以直接把文件推过来
+- **客户端**：发现设备 → 浏览对端目录 → 下载（带断点续传）/ 上传
+- **服务端**：本机开同协议的 HTTP 服务，对端可以直接把文件推过来
 
 v2（双向 TLS + 指纹钉扎，见 `AndroidFileManagerUtils/docs/PROTOCOL.md` 第二部分）
-正在分步落地：**Linux ↔ Linux 已经能全程走加密**，和手机之间还是 v1 明文
-（Android 一侧还没做）。
+**已经全部落地，两端都真机实测跑通** —— 和手机之间同样全程加密。
 
-- 服务端按首字节自动分流：是 TLS 就走加密，否则按 v1 处理。
+- 服务端按首字节自动分流：是 TLS 就走加密，否则按 v1 处理，一个端口同时服务新旧客户端。
 - 客户端看配对表决定：对方在表里就必须走加密，**握手失败绝不退回明文**，
   指纹对不上直接中止 —— 不给「仍然继续」。
 - 「设置 → 加密连接」能看到本机指纹，也能关掉明文；关掉之后本机只接受加密连接。
+- **全新安装默认只加密**（明文和访客模式都默认关），升级安装保持原样 ——
+  否则升一次级浏览器/明文客户端就连不上了，而且没有任何提示。判据是
+  `~/.config/afmu/config.json` 本来在不在，Android 端用同一套判据。
 
 ---
 
@@ -36,17 +39,31 @@ cmake --build build
 
 ### 测试
 
-默认不建，打开也不引入新依赖（只多用 `Qt6::Core`）：
+默认不建。打开**不引入任何新依赖** —— 只多链 `Qt6::Core`、`Qt6::Network` 和
+`OpenSSL::Crypto`，三个都已经是主程序的依赖，装的还是上面那几个包：
 
 ```bash
 cmake -S . -B build -G Ninja -DAFMU_TESTS=ON
 cmake --build build
-./build/afmu_peerstore_test          # 配对表：指纹规范化、去重、落盘、坏文件留底
+ctest --test-dir build --output-on-failure   # 或者直接跑 ./build/afmu_peerstore_test
 ```
 
-协议层面的一致性由 `AndroidFileManagerUtils/tests/conformance.py` 黑盒验证，
-用法见那边的 `tests/README.md` —— **注意它会对每个共享目录发删除请求**，
-只能对着隔离配置起的实例跑。
+127 条断言，覆盖配对表（指纹规范化、去重、落盘、坏文件留底）、SAS 与滚动 rid 的
+跨实现向量、配对码拼装、失败退避、配置读写。其中的向量和 Android 端
+`PeerCodecTest` / `PairSasTest` / `RollingIdTest` 的断言刻意一一对应 ——
+两端算得不一样的地方都不会抛异常，只会安静地表现成功能没了。
+
+协议层面的一致性由 `AndroidFileManagerUtils/tests/` 下的两套黑盒套件验证，
+用法见那边的 `tests/README.md`：
+
+- `conformance.py` —— v1 线格式。**注意它会对每个共享目录发删除请求**，
+  只能对着隔离配置起的实例跑。
+- `conformance_v2.py` —— v2 门禁：未配对连接只能碰 `/api/pair-v2`、
+  commit-reveal 三步、SAS 与本机独立算出的是否逐字相同。需要一个 `openssl`
+  命令行（生成客户端证书用），不写任何文件。
+
+  门禁那一组要求对端**访客模式关掉**才跑得起来（访客模式是 §4.2.4 唯一的例外，
+  开着时那几条会跳过，而「跳过」看起来和「通过」一样无害）。
 
 ---
 
@@ -104,7 +121,9 @@ token 交出去。之后对方回填自己的 token（§3.9），两个方向一
 过来只会撞上一句 "Failed to connect"，而本机这边毫无提示。
 
 不想让它自己起，去「接收服务」页取消「启动应用时自动开启服务」，选择会被记住。
-服务是明文 HTTP + 10 位 token，只防误连，别在公共 Wi-Fi 上开着。
+服务跑哪一套协议看「设置 → 加密连接」：只加密（新装默认）时它是 mTLS + 指纹钉扎，
+任何网络都能开；允许明文（升级默认）时那条路仍然是 HTTP + 10 位 token，
+只防误连，别在公共 Wi-Fi 上开着。详见下面的「安全边界」。
 
 下载落到「设置 → 下载目录」（默认 `~/Downloads/FileBridge`）。传输中是
 `<文件名>.<远端路径指纹>.afmu-part`，完整收完才 `rename` 成正式名——中断了绝不会留下
@@ -204,7 +223,38 @@ qml/
 
 ---
 
-## 注意
+## 安全边界
 
-协议是明文 HTTP，token 只防同一局域网内的误连和顺手翻看，**不是**对抗嗅探的安全边界。
-不要在不可信网络（公共 Wi-Fi、咖啡厅）上开启接收服务。
+**有两套，取决于「设置 → 加密连接」那个开关。** 界面上常驻显示当前实际是哪一套：
+
+| | v2（加密，新装默认） | v1（明文，升级默认） |
+|---|---|---|
+| 传输 | TLS 1.3 双向认证，自签证书 + SPKI 指纹钉扎 | 明文 HTTP |
+| 凭什么信对面 | 对方持有配对表里那把私钥 | 10 位共享 token |
+| 挡嗅探 / 中间人 | 都挡得住 | **都挡不住** |
+| 什么网络能开 | 任意，包括公共 Wi-Fi | 只在你信任的网络 |
+
+一台设备一旦用 v2 连过一次，配对表里就会给它置上 `pinned`，从此**不再允许它退回明文**
+（PROTOCOL.md v2 §8.2）。这个标志只升不降，要降只能由用户手动解除配对。
+
+私钥在 `~/.config/afmu/identity.pem`，权限 0600。**这和 Android 的 TEE 不对等** ——
+那边私钥在安全硬件里出不来，这边一次完整的家目录备份就能把身份带走。
+接系统 keyring 是 v2 之后的事，记在 PROTOCOL.md §14。
+
+威胁模型的完整版（防谁、不防谁、加密之后还剩什么泄露）见
+[PROTOCOL.md](https://github.com/aynX-skii/AndroidFileManagerUtils/blob/main/docs/PROTOCOL.md)
+第二部分 §1 和 §10。
+
+---
+
+## 许可证
+
+[LGPL-3.0](COPYING.LESSER)（在 [GPL-3.0](COPYING) 之上附加权限）。
+
+Qt 6 本身以 LGPLv3 提供，本项目**动态链接**发行版打包的 Qt（上面「构建」一节装的
+就是那些包），所以 LGPL 要求的「使用者能换掉这个库」天然满足 —— 换一个 Qt 6 的
+共享库上去就行，不需要重新编译本程序。同一套约束下的另外两个依赖：
+libqrencode 是 LGPL-2.1，OpenSSL 3.x 是 Apache-2.0，都相容。
+
+如果你要**静态链接** Qt 再分发，那条路 LGPL 也允许，但你得自己提供能重新链接的
+材料（目标文件或源码）。发行版包的动态链接方式不涉及这个。

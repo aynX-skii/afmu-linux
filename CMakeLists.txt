@@ -10,6 +10,14 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
+# 警告常驻。代码本来就是干净的（整棵树零警告），开着的意义是新写的东西没法
+# 悄悄带进一条 —— 事后再开永远要先还一堆债。
+# 不开 -Werror：Qt 的 moc/uic 生成代码和不同版本的 GCC/Clang 口味不一样，
+# 让别人的机器编不过换不来任何东西。
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra)
+endif()
+
 find_package(Qt6 6.5 REQUIRED COMPONENTS Core Gui Network Qml Quick QuickControls2)
 
 # 二维码编码交给 libqrencode（Debian/Ubuntu: libqrencode-dev，Fedora: qrencode-devel，

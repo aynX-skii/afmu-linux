@@ -157,8 +157,10 @@ AppController::AppController(QObject *parent)
                 const QString who = name.isEmpty() ? host : name;
                 appendLog(T(QStringLiteral("%1 已扫码配对（%2:%3）")).arg(who, host).arg(port));
                 m_config->setPeerToken(token);
+                // 指纹留空：这是 v1 的回填路径，此刻没有握手过的证书可填。
+                // DeviceModel::upsert 会保留已有的那个，不会把认出来的设备打回「不认识」。
                 m_devices->upsert(DeviceInfo{who, os.isEmpty() ? QStringLiteral("unknown") : os,
-                                             host, port});
+                                             host, port, {}});
                 notify(T(QStringLiteral("已与 %1 配对")).arg(who), false);
                 if (!m_connected)
                     connectToDevice(host, port, who, os);
@@ -854,8 +856,9 @@ void AppController::approveIncomingAuth()
     // token 到这一刻才离开本机。对方随后会用它调 /api/pair 把自己的 token 回填过来，
     // 于是两个方向一起通（PROTOCOL.md §3.9）。
     m_incomingAuth->decide(r.id, true);
+    // 同上：v1 授权连接没有证书，指纹留空由 upsert 保留旧值
     m_devices->upsert(DeviceInfo{r.name, r.os.isEmpty() ? QStringLiteral("unknown") : r.os, r.host,
-                                 r.port > 0 ? r.port : int(afmu::kDefaultHttpPort)});
+                                 r.port > 0 ? r.port : int(afmu::kDefaultHttpPort), {}});
     appendLog(T(QStringLiteral("已允许 %1（%2）连接本机")).arg(r.name, r.host));
     notify(T(QStringLiteral("已允许 %1 连接")).arg(r.name), false);
 }
