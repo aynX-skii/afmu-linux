@@ -51,6 +51,15 @@ AppController::AppController(QObject *parent)
     if (!m_config->loadError().isEmpty())
         appendLog(m_config->loadError());
 
+    // §8.2 第 3 阶段的一次性迁移动过手了，说一声。**必须说**：这一下会让还在跑
+    // 旧版本的设备、以及浏览器界面，从今天起连不上，而用户看到的表现只是
+    // 「今天开始连不上了」—— 不说的话他会去查网络、查防火墙、查路由器。
+    if (m_config->plaintextJustDisabled()) {
+        appendLog(T(QStringLiteral(
+            "已停止接受明文连接（协议 §8.2 第 3 阶段）。还在用旧版本的设备和浏览器界面"
+            "会连不上 —— 需要的话，去「设置 → 加密连接」重新打开「允许未加密的旧版连接」。")));
+    }
+
     const QString configDir = QFileInfo(m_config->configFilePath()).absolutePath();
 
     // 配对表放在 config.json 旁边，跟着同一个 XDG 目录走。

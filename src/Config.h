@@ -108,6 +108,15 @@ public:
      */
     QString loadError() const { return m_loadError; }
 
+    /**
+     * 本次启动的一次性迁移刚刚把明文关掉了（§8.2 第 3 阶段）。
+     *
+     * 只在**真的动过**的那一次启动为真：本来就关着、或者迁移早就跑过，都是假。
+     * 界面据此说一次「已停止接受明文连接，老设备连不上就去设置里重新打开」——
+     * 悄悄关掉的话，用户看到的是「今天开始连不上了」，然后去查网络和防火墙。
+     */
+    bool plaintextJustDisabled() const { return m_plaintextJustDisabled; }
+
 signals:
     void changed();
 
@@ -120,4 +129,6 @@ private:
     QString m_loadError;
     /** 原文件读不出来又备份不掉时置位：宁可不写，也不覆盖可能还能救的 token。 */
     bool m_readOnlyFallback = false;
+    /** 见 plaintextJustDisabled()。 */
+    bool m_plaintextJustDisabled = false;
 };

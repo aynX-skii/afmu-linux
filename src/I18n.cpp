@@ -289,6 +289,13 @@ const Entry kEnglish[] = {
      "will not connect at all."},
     {"%1 以访客身份接入（已加密，但对方身份未经验证）",
      "%1 connected as a guest — encrypted, but the other end's identity is unverified"},
+    {"已停止接受明文连接（协议 §8.2 第 3 阶段）。还在用旧版本的设备和浏览器界面"
+     "会连不上 —— 需要的话，去「设置 → 加密连接」重新打开「允许未加密的旧版连接」。",
+     "Plaintext connections are no longer accepted (protocol §8.2 stage 3). Devices still on "
+     "an older version, and the browser interface, will not connect — if you need them, turn "
+     "\"Allow plaintext connections\" back on under Settings → Encrypted connections."},
+    {"%1 的连接已断开：只接受加密连接，但 TLS 未就绪",
+     "Dropped the connection from %1: encrypted-only is on but TLS is not ready"},
     {"拒绝了 Host 为「%1」的请求（疑似 DNS rebinding）",
      "Refused a request with Host \"%1\" (looks like DNS rebinding)"},
     {"拒绝了来自「%1」的跨站请求", "Refused a cross-origin request from \"%1\""},

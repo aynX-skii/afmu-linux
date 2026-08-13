@@ -17,6 +17,11 @@ Config::Config(QObject *parent)
     load();
 }
 
+namespace {
+/** §8.2 第 3 阶段的迁移标记。见 Config::load 末尾。 */
+const QString kStage3Key = QStringLiteral("plaintextStage3");
+} // namespace
+
 QString Config::configFilePath() const
 {
     return m_path;
@@ -65,16 +70,8 @@ void Config::load()
     ensure(QStringLiteral("autoStartServer"), true);
     // 默认开着：没有 token 的设备靠它来敲门，关掉之后只剩手抄 token / 扫码两条路
     ensure(QStringLiteral("allowAuthRequests"), true);
-    // 新装默认关，升级默认开 —— 和下面的 guestMode 用**同一个**判据（配置文件本来
-    // 在不在），因为它们本来就是同一个问题的两半（v2 §9.5）。
-    //
-    // 曾经无条件默认开，理由是「用户手上还有旧版本，翻默认值等于让他们突然连不上」。
-    // 那个理由只对升级安装成立：真·新装这一侧根本没有旧版本要照顾，而 guestMode
-    // 新装默认关，于是明文连接能到达的东西是空集 —— 未配对的明文请求一律 403，
-    // 端口白开着，只剩下被扫出来这一个作用。开箱即只加密才是 §8.2 第 3 阶段要的。
-    //
-    // Android 侧同一个决定见 Prefs.settleDefaults()：两端现在对新装的姿态一致。
-    ensure(QStringLiteral("allowLegacyPlaintext"), r.existed);
+    // 新装默认关 —— 见下面的一次性迁移，升级安装最终也会落到关。
+    ensure(QStringLiteral("allowLegacyPlaintext"), false);
     // 零信任模式（草案 §9）：打开之后只认配对表里的设备，访客模式一并强制关闭。
     ensure(QStringLiteral("zeroTrustMode"), false);
     // 访客模式 = 浏览器界面 + 密码认证，也就是 v1 那套访问方式（草案 §9）。
@@ -100,6 +97,27 @@ void Config::load()
         arr.append(inboxDir());
         m_json.insert(QStringLiteral("serveRoots"), arr);
         dirty = true;
+    }
+
+    // ---- §8.2 第 3 阶段：明文默认关，升级安装也一样 -----------------------
+    //
+    // **只改默认值是没用的**，这一点值得写下来：上面那些 ensure() 只填缺失的键，
+    // 而任何跑过旧版本的安装，`allowLegacyPlaintext: true` 早就写进文件里了 ——
+    // 默认值再怎么改也碰不到它。所以第 3 阶段必须是一次**迁移**，不是一个默认值。
+    //
+    // 迁移只做一次，靠 stage3 这个标记记住。这一条是必须的，不是优化：
+    // 用户在设置页上重新打开明文，是一个明确的决定（§8.2 「老设备需手动放行」
+    // 说的就是这件事），下次启动再给他关掉就成了和他对着干。
+    //
+    // 关掉之后要**说一声**。悄悄关掉正是这个项目一路在防的那类事，只不过方向反过来：
+    // 静默降级会让用户以为自己是安全的，静默升级会让他以为是网络坏了。
+    if (!m_json.contains(kStage3Key)) {
+        m_json.insert(kStage3Key, true);
+        dirty = true;
+        if (m_json.value(QStringLiteral("allowLegacyPlaintext")).toBool(false)) {
+            m_json.insert(QStringLiteral("allowLegacyPlaintext"), false);
+            m_plaintextJustDisabled = true;
+        }
     }
 
     if (dirty)

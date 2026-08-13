@@ -12,6 +12,7 @@
  */
 
 #include "../src/AuthRequests.h"
+#include "../src/Config.h"
 #include "../src/Identity.h"
 #include "../src/PairSas.h"
 #include "../src/RollingId.h"
@@ -520,6 +521,62 @@ int main(int argc, char **argv)
                                      QStringLiteral("10.0.0.5"), peerFp, commitOf(nonce('\x33')))
                       .isNull(),
                   "开关关掉时配对也一并关掉");
+        }
+    }
+
+    // ------------------------------- §8.2 第 3 阶段：明文的一次性迁移
+    //
+    // 这一组的重点是**只做一次**。迁移本身很短，容易写对；写错的是「每次启动都跑」，
+    // 而那个错误只有在用户重新打开明文之后才看得见 —— 他关掉又被打开，
+    // 会以为是设置没保存。
+    {
+        QTemporaryDir cfgDir;
+        check(cfgDir.isValid(), "配置临时目录可用");
+        qputenv("XDG_CONFIG_HOME", cfgDir.path().toUtf8());
+        const QString cfgPath =
+            QDir(cfgDir.path()).filePath(QStringLiteral("afmu/config.json"));
+
+        // 真·新装：配置本来就不存在 → 明文默认关，而且**不该**报「刚刚关掉了」，
+        // 因为它从来没开过。
+        {
+            Config c;
+            check(!c.allowLegacyPlaintext(), "新装应当默认只加密");
+            check(!c.plaintextJustDisabled(), "新装没动过明文，不该提示刚关掉");
+        }
+
+        // 升级安装：伪造一份旧版本写下的配置（明文开着、没有迁移标记）。
+        QDir().mkpath(QFileInfo(cfgPath).absolutePath());
+        {
+            QFile f(cfgPath);
+            check(f.open(QIODevice::WriteOnly | QIODevice::Truncate), "能写出旧版本配置");
+            f.write(R"({"allowLegacyPlaintext": true, "guestMode": true,
+                        "localToken": "test2test9", "deviceName": "老机器"})");
+        }
+        {
+            Config c;
+            check(!c.allowLegacyPlaintext(), "升级安装的明文应当被迁移关掉");
+            check(c.plaintextJustDisabled(), "关掉了就必须报出来，界面要说一声");
+            check(c.localToken() == QStringLiteral("test2test9"), "迁移不该动到别的键");
+            check(c.deviceName() == QStringLiteral("老机器"), "迁移不该动到设备名");
+        }
+
+        // 再启动一次：标记已经在文件里了，什么都不该发生。
+        {
+            Config c;
+            check(!c.plaintextJustDisabled(), "迁移只做一次，第二次启动不该再提示");
+        }
+
+        // 用户在设置页上重新打开明文 —— 这是一个明确的决定（§8.2「老设备需手动
+        // 放行」）。下次启动**不许**再给他关掉，否则就是和用户对着干，
+        // 而他看到的表现是「这个开关存不住」。
+        {
+            Config c;
+            c.setAllowLegacyPlaintext(true);
+        }
+        {
+            Config c;
+            check(c.allowLegacyPlaintext(), "用户重新打开的明文必须留住");
+            check(!c.plaintextJustDisabled(), "不该第二次触发迁移");
         }
     }
 
