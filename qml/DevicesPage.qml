@@ -167,6 +167,12 @@ Item {
                     required property string os
                     required property string host
                     required property int port
+                    // 一旦 delegate 里出现 required property，QML 就**只**注入声明过的
+                    // 那几个角色，其余角色不再作为上下文属性可见。漏声明的后果不是
+                    // 报个错就算了：绑定抛 ReferenceError 之后属性停在默认值上，于是
+                    // 「已配对就藏起来」的按钮一直显示，锁图标也一直亮着 —— 界面对
+                    // "这台设备配过没有"这个问题给出的答案是恒定的，而且是错的。
+                    required property bool paired
 
                     width: list.width - (list.ScrollBar.vertical.visible ? 10 : 0)
                     height: 62
@@ -250,8 +256,10 @@ Item {
                             text: Tr.t("加密配对")
                             iconName: "lock"
                             variant: FlatButton.Variant.Subtle
-                            // 已经在配对表里的就别再问一遍了
-                            visible: App.tlsReady && !paired
+                            // 已经在配对表里的就别再问一遍了 —— 除非对端已经不认得
+                            // 本机（配对只剩单边），那时候这颗按钮正是唯一的出路。
+                            visible: App.tlsReady
+                                     && (!paired || App.forgotUsPeer === host + ":" + port)
                             enabled: !App.authPending
                             onClicked: App.requestPairing(host, port, name, os)
                         }

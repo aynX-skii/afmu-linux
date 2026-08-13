@@ -663,11 +663,46 @@ private:
                                           ticket, QDateTime::currentMSecsSinceEpoch());
     }
 
+    /**
+     * 「这个指纹**现在**配过对吗」—— 每个请求问一次，而不是握手时问一次记一辈子。
+     *
+     * 指纹本身是握手验过的（对方用私钥签过 CertificateVerify），整条连接终生不变，
+     * 所以重新查表不会引入任何新的信任来源：变的只有表里的答案。而它确实会变，
+     * 两个方向都会：
+     *
+     *  · 配对成功那一刻 —— 配对握手跑在一条「还没配对」的连接上，用户点允许之后
+     *    表里就有对方了。不重新查的话，对端紧接着的第一个真正请求还是被 403
+     *    「not paired」挡住 —— 配对明明成功了，第一下连接却被拒。HTTP 连接复用
+     *    是常态（Qt 的 QNAM 默认就这么干），所以这不是罕见路径。
+     *  · 解除配对那一刻 —— 用户在界面上把某台设备删掉，它**正在进行**的那条连接
+     *    应该当场失效，而不是等它自己断开。
+     */
+    void refreshPairedState()
+    {
+        if (!m_tls || m_peerFp.isEmpty())
+            return; // 明文，或者加密访客（没有证书 → 没有身份可查）
+        PeerStore *peers = m_server->peerStore();
+        const bool nowPaired = peers && peers->isPaired(m_peerFp);
+        if (nowPaired == m_peerPaired)
+            return;
+        m_peerPaired = nowPaired;
+        if (nowPaired) {
+            // 和握手时那条路径一样：一次成功的 v2 连接就是「它会说 v2」的证据。
+            peers->setPinned(m_peerFp, true);
+            emit m_server->logMessage(T(QStringLiteral("%1 刚刚完成配对，本连接已升级为已配对"))
+                                          .arg(peerHost()));
+        } else {
+            emit m_server->logMessage(
+                T(QStringLiteral("%1 的配对已被解除，本连接从此只能走配对流程")).arg(peerHost()));
+        }
+    }
+
     // ---------------------------------------------------------- 路由
 
     void route()
     {
         const ServerContext &ctx = m_server->context();
+        refreshPairedState();
 
         // DNS rebinding / 跨站请求防护（PROTOCOL.md §2.4）。排在所有路由之前 ——
         // 包括 GET /，因为浏览器界面正是这类攻击的入口。

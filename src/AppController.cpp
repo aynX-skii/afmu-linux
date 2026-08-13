@@ -426,7 +426,13 @@ void AppController::requestAuthorization(const QString &host, int port, const QS
         }
         if (reply->error() != QNetworkReply::NoError || !o.value(QStringLiteral("ok")).toBool(false)) {
             appendLog(T(QStringLiteral("授权请求被拒绝：%1")).arg(PeerClient::errorFrom(reply, body)));
-            finishAuthorization(code == 403   ? QStringLiteral("disabled")
+            // 403 有两个来源，指向的动作完全不同：对端关了「允许连接请求」，
+            // 还是对端关了访客模式 —— 后者意味着 token 这条路整个不通了（v2 §9.3），
+            // 让用户去开「允许连接请求」只会白忙一场，该说的是"改用加密配对"。
+            const bool guestOff =
+                o.value(QStringLiteral("error")).toString().contains(QLatin1String("guest mode"));
+            finishAuthorization(code == 403 ? (guestOff ? QStringLiteral("guestoff")
+                                                        : QStringLiteral("disabled"))
                                 : code == 429 ? QStringLiteral("busy")
                                               : QStringLiteral("failed"));
             return;
@@ -488,6 +494,15 @@ void AppController::requestPairing(const QString &host, int port, const QString 
     ensureServerRunning();
     // 配对模式：走 TLS 但不比对指纹 —— 此刻还不知道该比什么，这正是要解决的问题。
     m_client->setPairingPeer(m_authHost, m_authPort);
+    // 上面那句只在**客户端**拿得出证书时才真的进入配对模式。拿不出来的话
+    // secure() 是假的，接下来这一步会以明文发出去 —— 而明文配对没有任何意义：
+    // 没有证书就没有可授权的指纹，整段交换还会被旁听（v2 §4.2.4）。
+    // 服务端的 tlsReady 不能替它作答：那是两套配置，判空的条件也不一样。
+    if (!m_client->pairing()) {
+        appendLog(T(QStringLiteral("本机拿不出客户端证书，配对不能退回明文，已中止")));
+        finishAuthorization(QStringLiteral("nolocaltls"));
+        return;
+    }
     pairingCommit();
 }
 
@@ -513,10 +528,18 @@ void AppController::pairingCommit()
         reply->deleteLater();
         if (!m_authPending || !m_authIsPairing)
             return;
-        const QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
+        const QByteArray body = reply->readAll();
+        const QJsonObject o = QJsonDocument::fromJson(body).object();
         const int code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() != QNetworkReply::NoError || !o.value(QStringLiteral("ok")).toBool(false)) {
-            if (code == 404)
+            // **失败必须留下痕迹。** 这里原来只按状态码分个类就弹一句「配对失败」，
+            // 连日志都不写 —— 而配对失败最常见的原因（对端只提供明文，握手压根没成）
+            // 状态码是 0，于是两端日志都是空的，用户手上一点线索都没有。
+            appendLog(T(QStringLiteral("配对第一步失败：%1"))
+                          .arg(PeerClient::errorFrom(reply, body)));
+            if (reply->error() == QNetworkReply::SslHandshakeFailedError)
+                finishAuthorization(QStringLiteral("plaintext")); // 对端没在听 TLS
+            else if (code == 404)
                 finishAuthorization(QStringLiteral("unsupported")); // 对端还不会 v2
             else if (code == 429)
                 finishAuthorization(QStringLiteral("denied"));
@@ -527,6 +550,7 @@ void AppController::pairingCommit()
         m_pairSession = o.value(QStringLiteral("session")).toString();
         m_pairNonceB = afmu::hexDecodeStrict(o.value(QStringLiteral("nb")).toString());
         if (m_pairSession.isEmpty() || m_pairNonceB.size() != 32) {
+            appendLog(T(QStringLiteral("对端第一步的应答不完整（缺 session 或 n_b），已中止")));
             finishAuthorization(QStringLiteral("failed"));
             return;
         }
@@ -546,8 +570,11 @@ void AppController::pairingReveal()
         reply->deleteLater();
         if (!m_authPending || !m_authIsPairing)
             return;
-        const QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
+        const QByteArray body = reply->readAll();
+        const QJsonObject o = QJsonDocument::fromJson(body).object();
         if (reply->error() != QNetworkReply::NoError || !o.value(QStringLiteral("ok")).toBool(false)) {
+            appendLog(T(QStringLiteral("配对第二步失败：%1"))
+                          .arg(PeerClient::errorFrom(reply, body)));
             finishAuthorization(QStringLiteral("failed"));
             return;
         }
@@ -558,6 +585,11 @@ void AppController::pairingReveal()
                                               afmu::Identity::fromBase32(m_pairPeerFp),
                                               m_pairNonceA, m_pairNonceB);
         if (mine.isEmpty()) {
+            // 算不出来只有两种原因：拿不到对端指纹（握手里没有证书），或者长度不对。
+            // 两种都得说出来，否则和"对端拒绝"看起来一模一样。
+            appendLog(m_pairPeerFp.isEmpty()
+                          ? T(QStringLiteral("没能从握手里取到对端指纹，算不出比对码，已中止"))
+                          : T(QStringLiteral("比对码算不出来（指纹或随机数长度不对），已中止")));
             finishAuthorization(QStringLiteral("failed"));
             return;
         }
@@ -593,10 +625,16 @@ void AppController::pollPairing()
         reply->deleteLater();
         if (!m_authPending || !m_authIsPairing)
             return;
-        const QJsonObject o = QJsonDocument::fromJson(reply->readAll()).object();
+        const QByteArray body = reply->readAll();
+        const QJsonObject o = QJsonDocument::fromJson(body).object();
         if (reply->error() != QNetworkReply::NoError || !o.value(QStringLiteral("ok")).toBool(false)) {
-            if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 404)
+            // 网络抖动下一秒就再试，所以这里**不**每次都记日志 —— 一秒一条会把
+            // 真正有用的那几行冲走。会话没了是终局，那条要说。
+            if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 404) {
+                appendLog(T(QStringLiteral("对端已经不认这个配对会话：%1"))
+                              .arg(PeerClient::errorFrom(reply, body)));
                 finishAuthorization(QStringLiteral("expired"));
+            }
             return;
         }
         const QString status = o.value(QStringLiteral("status")).toString();
@@ -724,8 +762,17 @@ void AppController::finishAuthorization(const QString &status)
             notify(T(QStringLiteral("配对超时，对方没有确认")), true);
         else if (status == QLatin1String("unsupported"))
             notify(T(QStringLiteral("对端还不支持加密配对")), true);
+        else if (status == QLatin1String("plaintext"))
+            // 握手就没成，对端那个端口上没有 TLS 在听。这在手机上是**一个开关**的事，
+            // 而不是"再试一次"能解决的 —— Android 一次只能提供一种协议（v2 §5.3），
+            // 明文开着的时候它压根不建 TLS。所以直接把要点哪里说出来。
+            notify(T(QStringLiteral("对端只提供明文连接，加密握手没能建立。请在手机的设置里"
+                                    "打开「只接受加密连接」，再点一次加密配对")),
+                   true);
+        else if (status == QLatin1String("nolocaltls"))
+            notify(T(QStringLiteral("本机拿不出客户端证书，无法加密配对（明文配对没有意义）")), true);
         else if (status == QLatin1String("failed"))
-            notify(T(QStringLiteral("配对失败")), true);
+            notify(T(QStringLiteral("配对失败，原因见日志")), true);
         return; // granted 那条已经在 pollPairing 里说过了
     }
 
@@ -739,6 +786,9 @@ void AppController::finishAuthorization(const QString &status)
         notify(T(QStringLiteral("对端不支持授权连接，请手动填写 token 或扫描本机二维码")), true);
     } else if (status == QLatin1String("disabled")) {
         notify(T(QStringLiteral("对方关掉了「允许连接请求」，请在它的设置里打开")), true);
+    } else if (status == QLatin1String("guestoff")) {
+        notify(T(QStringLiteral("对端关掉了访客模式，token 这条路已经不通 —— 请改用「加密配对」")),
+               true);
     } else if (status == QLatin1String("busy")) {
         notify(T(QStringLiteral("对方正在处理另一个连接请求，稍后再试")), true);
     } else if (status == QLatin1String("failed")) {
@@ -907,9 +957,25 @@ void AppController::fetchInfo()
                 notify(T(QStringLiteral("这台设备只接受加密连接，握手失败，已拒绝")), true);
                 return;
             }
+            // 「本机在你表里，你不在我表里」—— 配对只剩了一半（对方删了配对、
+            // 重装了应用、或者换了身份）。这句话只有真正握手成功的对端说得出来，
+            // 所以它是可信的，但**不能**因此就把本机这边的记录删掉：删除是用户的
+            // 决定。能做的是说清楚，并把「加密配对」那颗按钮放回来 —— 界面本来
+            // 对已配对设备把它藏了起来，于是唯一的出路正好在需要它的时候消失。
+            if (code == 403
+                && o.value(QStringLiteral("error")).toString().contains(
+                    QLatin1String("only /api/pair-v2"))) {
+                setForgotUsPeer(QStringLiteral("%1:%2").arg(m_client->host()).arg(m_client->port()));
+                appendLog(T(QStringLiteral("%1 那边已经没有本机的配对记录了（只剩单边）"))
+                              .arg(m_peerName));
+                notify(T(QStringLiteral("对端不再认得本机 —— 在设备列表点「加密配对」重新配一次")),
+                       true);
+                return;
+            }
             notify(T(QStringLiteral("连接失败：%1")).arg(PeerClient::errorFrom(reply, body)), true);
             return;
         }
+        setForgotUsPeer(QString()); // 连上了，那"只剩单边"的判断就过期了
         // 未知字段必须忽略；缺失的 Android 专有字段必须容忍
         const int proto = o.value(QStringLiteral("protocol")).toInt(afmu::kProtocolVersion);
         if (proto > afmu::kProtocolVersion) {
@@ -1190,6 +1256,14 @@ void AppController::applyServerContext()
 
 bool AppController::serverRunning() const { return m_server->isListening(); }
 int AppController::serverPort() const { return m_server->actualPort(); }
+
+void AppController::setForgotUsPeer(const QString &hostPort)
+{
+    if (m_forgotUsPeer == hostPort)
+        return;
+    m_forgotUsPeer = hostPort;
+    emit forgotUsPeerChanged();
+}
 
 bool AppController::pairingMode() const { return m_discovery->pairingMode(); }
 int AppController::pairingRemaining() const { return m_discovery->pairingSecondsLeft(); }

@@ -100,6 +100,14 @@ public:
     void endPairing();
     bool pairing() const { return m_pairing; }
 
+    /**
+     * 丢掉连接池里空闲的 socket，好让下一个请求重新握手。
+     *
+     * 对端的身份是握手那一刻定下来的，一条连接终生不变 —— 所以身份状态一变（配对
+     * 前后、被撤销之后），复用旧 socket 就是拿旧身份去发新请求。实现里说了细节。
+     */
+    void dropIdleConnections();
+
     QString host() const { return m_host; }
     int port() const { return m_port; }
     QString token() const { return m_token; }

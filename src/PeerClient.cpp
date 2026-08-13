@@ -106,11 +106,45 @@ void PeerClient::setPairingPeer(const QString &host, int port)
     m_discover = false;
     m_tlsGuest = false;
     m_pairing = m_identity != nullptr;
+    // 配对必须开一条**新**连接：复用一条建立在别的身份状态下的 socket，等于让
+    // 这次配对继承那次握手的身份。见 dropIdleConnections()。
+    dropIdleConnections();
 }
 
 void PeerClient::endPairing()
 {
+    if (!m_pairing)
+        return;
     m_pairing = false;
+    // **重新推导这条会话该是什么状态，而不是只把标志清掉。**
+    //
+    // setPairingPeer() 为了配对把 m_expectedFp / m_discover 一并清空了 —— 配对时
+    // 本来就不知道该期望什么。清掉之后如果只把 m_pairing 置假，secure() 会翻回假，
+    // 于是同一台对端后面的普通请求**静默退回明文**，哪怕它就在配对表里。
+    // 配对失败（很常见：对端还在明文模式）之后紧接着浏览一下就会踩到。
+    setPeer(m_host, m_port);
+    // 配对刚刚改变了「对端眼里我们是谁」，而那个答案是每条连接握手时定一次的。
+    // 不在这里换连接，配对成功后的第一个请求就会被对端按未配对拒掉。
+    dropIdleConnections();
+}
+
+/**
+ * 扔掉连接池里空闲的那些 socket。
+ *
+ * **配对前后各扔一次，这不是优化，是正确性。** 对端的身份是在**握手那一刻**定下来的
+ * ——Android 侧从 `SSLSession` 里读一次，写进这条连接的每个请求；Linux 侧同理。
+ * 也就是说一条 socket 的"对面是谁"终生不变。
+ *
+ * 而配对恰好会改变这个答案：配对期间那条连接是"有证书但没配过对"，用户点了允许之后
+ * 对端表里就有我们了。这时候如果 QNAM 把紧随其后的第一个真正请求塞回同一条 socket，
+ * 对端看到的仍然是那条**未配对**的连接，于是回 403「not paired; only /api/pair-v2
+ * is available」—— 配对明明成功了，第一下连接却被拒，而且看不出为什么。
+ *
+ * 只清空闲连接就够了：配对那几步的回应都已经收完，socket 此刻是空闲的。
+ */
+void PeerClient::dropIdleConnections()
+{
+    m_nam->clearConnectionCache();
 }
 
 void PeerClient::setPeer(const QString &host, int port)

@@ -72,6 +72,16 @@ class AppController : public QObject
     Q_PROPERTY(bool pairingMode READ pairingMode NOTIFY pairingModeChanged)
     Q_PROPERTY(int pairingRemaining READ pairingRemaining NOTIFY pairingModeChanged)
 
+    /**
+     * 「host:port」—— 这台对端在配对表里，但它那边已经不认得本机了（它回了
+     * 「not paired; only /api/pair-v2 is available」）。空字符串表示没有这种情况。
+     *
+     * 配对是双方各存一份的，所以它**可以只剩一半**：对方删掉了配对、重装了应用、
+     * 或者换了身份。而界面对已配对设备是把「加密配对」按钮藏起来的 ——
+     * 于是唯一的出路正好在唯一需要它的时候消失了。有了这个属性，那颗按钮能回来。
+     */
+    Q_PROPERTY(QString forgotUsPeer READ forgotUsPeer NOTIFY forgotUsPeerChanged)
+
     // 手机扫这个二维码即可拿到本机地址 + token（PROTOCOL.md §5）
     Q_PROPERTY(QString pairUri READ pairUri NOTIFY pairUriChanged)
 
@@ -144,6 +154,7 @@ public:
     bool tlsReady() const;
     bool pairingMode() const;
     int pairingRemaining() const;
+    QString forgotUsPeer() const { return m_forgotUsPeer; }
 
     QString pairUri() const;
 
@@ -224,6 +235,7 @@ signals:
     void serverChanged();
     void serverLogChanged();
     void pairingModeChanged();
+    void forgotUsPeerChanged();
     void pairUriChanged();
     void authChanged();
     void incomingAuthChanged();
@@ -246,6 +258,8 @@ private:
     void finishAuthorization(const QString &status);
     /** 授权通过后把本机的地址和 token 回填给对端，一次配对打通两个方向。 */
     void pushPairBack();
+    /** 见 forgotUsPeer。只在值真的变了时发信号，免得每次连接都刷一遍界面。 */
+    void setForgotUsPeer(const QString &hostPort);
 
     Config *m_config = nullptr;
     I18n *m_i18n = nullptr;
@@ -292,6 +306,9 @@ private:
     QString m_authOs;
     int m_authPort = 0;
     int m_authRemaining = 0;
+
+    // 配对表里有它，但它那边已经不认得本机了。见 forgotUsPeer。
+    QString m_forgotUsPeer;
 
     // v2 配对。复用上面那套 pending / status / remaining，只是内容不同。
     bool m_authIsPairing = false;
