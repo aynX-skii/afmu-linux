@@ -203,18 +203,29 @@ adb reverse tcp:8765  tcp:8765     # 反过来，让手机能访问本机的服�
 
 ```
 src/
-  Protocol.*        协议常量、常数时间 token 比较、token 生成、配对 URI 拼装
+  Protocol.*        协议常量、常数时间 token 比较、token 生成、配对 URI、下载券
+  ProtocolConstants.h  ⚙ 由 AndroidFileManagerUtils/tools/gen_constants.py 生成，别手改
   QrCode.*          libqrencode 的薄封装（byte 模式，版本自动选）
   QrImage.*         QrView —— 把二维码画到 QML 里的 QQuickPaintedItem
   PathSafety.*      §4.1 越界防护 / §4.2 文件名安全化 / §4.4 自动改名
-  Config.*          ~/.config/afmu/config.json（权限 600）
+  JsonFile.*        「文件不存在」和「文件在但读不出来」分开处理，坏文件留底不覆盖
+  Config.*          ~/.config/afmu/config.json（权限 600），含 §8.2 第 3 阶段的迁移
   I18n.*            中英文案表、语言解析与持久化
-  Discovery.*       UDP 8766：广播探测 + 应答，过滤自己的应答
-  PeerClient.*      客户端 HTTP 封装，token 走 X-AFMU-Token
+  Discovery.*       UDP 8766：广播探测 + 应答，过滤自己的应答，滚动 rid
+  PeerClient.*      客户端 HTTP 封装，token 走 X-AFMU-Token，钉扎挂在 encrypted 上
   Models.*          设备列表、远端目录列表
   TransferModel.*   传输队列（并发 2），下载续传、上传进度、速度与 ETA
+  AuthRequests.*    待决状态机：v1 授权 + v2 配对（共用一个位置）
+  AuthThrottle.*    token 猜错的指数退避（§2.2）
   HttpServer.*      服务端：异步 HTTP/1.1，含 Range、chunked、multipart 流式解析
   AppController.*   串起来暴露给 QML 的门面
+
+                    ── 以下是 v2（零信任）那一层 ──
+  Identity.*        设备身份：EC P-256 自签证书（OpenSSL 生成）、SPKI 指纹、base32
+  Tls.*             双向 TLS 的配置与对端指纹提取
+  PeerStore.*       配对表 peers.json，v2 的访问控制列表本身
+  PairSas.*         8 位比对码，commit-reveal 绑定会话随机数（§4.2.2）
+  RollingId.*       发现应答里的滚动 rid，不再广播设备名（§6.1）
 qml/
   Theme.qml         唯一的颜色 / 间距 / 字号来源
   Tr.qml            文案入口 Tr.t("中文")，切换语言时绑定自动重算
