@@ -32,6 +32,7 @@ QVariant DeviceModel::data(const QModelIndex &index, int role) const
     case AddressRole: return QStringLiteral("%1:%2").arg(d.host).arg(d.port);
     case FingerprintRole: return d.fingerprint;
     case PairedRole: return !d.fingerprint.isEmpty();
+    case HeardRole: return d.heard;
     default: return {};
     }
 }
@@ -46,6 +47,7 @@ QHash<int, QByteArray> DeviceModel::roleNames() const
         {AddressRole, "address"},
         {FingerprintRole, "fingerprint"},
         {PairedRole, "paired"},
+        {HeardRole, "heard"},
     };
 }
 
@@ -114,6 +116,7 @@ QList<DeviceInfo> afmu::mergeDevices(const QList<DeviceInfo> &heard,
     for (DeviceInfo d : heard) {
         if (!stillPaired(d.fingerprint))
             d.fingerprint.clear(); // 见头文件：解除配对必须当场退回「不认识」
+        d.heard = true;
         out.append(d);
     }
 
@@ -130,9 +133,11 @@ QList<DeviceInfo> afmu::mergeDevices(const QList<DeviceInfo> &heard,
         });
         if (listed)
             continue;
+        // heard = false：这一行是**记得**，不是**听到**。界面据此把它和真的应答过的
+        // 区分开 —— 不然「扫描完列表里有它」会被读成「它开着」，而这次它可能根本没开。
         out.append(DeviceInfo{r.name.isEmpty() ? r.lastHost : r.name,
                               r.os.isEmpty() ? QStringLiteral("unknown") : r.os, r.lastHost,
-                              r.lastPort, r.fp});
+                              r.lastPort, r.fp, false});
     }
     return out;
 }

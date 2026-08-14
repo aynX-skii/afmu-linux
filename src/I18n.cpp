@@ -392,6 +392,8 @@ const Entry kEnglish[] = {
     {"没有发现设备。确认对方设备与本机在同一 Wi-Fi、接收服务已打开，",
      "No devices found. Check that the phone is on the same Wi-Fi with its server on, "},
     {"或用「手动连接」直接输入地址。", "or use manual connect to enter the address directly."},
+    {"未应答", "No reply"},
+    {"上次见到它的地址", "where it was last seen"},
     {"没收到广播应答，复用上次地址 %1:%2", "No broadcast reply; reusing the last address %1:%2"},
     {"没收到广播应答，列出的是配对表里的 %1 台设备，地址是上次见到它们的那个",
      "No broadcast reply — listing %1 paired device(s) at the address each was last seen at"},

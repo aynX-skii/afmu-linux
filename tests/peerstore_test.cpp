@@ -609,6 +609,8 @@ int main(int argc, char **argv)
             check(out[0].fingerprint == fpA, "从配对表列出来的设备带着指纹（界面据此显示锁）");
             check(out[0].name == QStringLiteral("台式机"), "名字取配对表里的");
             check(out[1].os == QStringLiteral("unknown"), "配对表里没记 os 时填 unknown");
+            // 「列表里有它」不等于「它开着」：本机分不清设备关机和广播被吃掉。
+            check(!out[0].heard && !out[1].heard, "从配对表列出来的必须标成没听到应答");
         }
 
         // 陌生人应答了，已配对的那台没答 —— 老代码在这里把 A 丢掉了。
@@ -619,6 +621,7 @@ int main(int argc, char **argv)
             check(out.size() == 2, "扫到陌生设备不该把没应答的已配对设备挤掉");
             check(out[0].host == QStringLiteral("192.168.1.99"), "听到的排在前面");
             check(out[0].fingerprint.isEmpty(), "陌生人没有指纹，界面上不该有锁");
+            check(out[0].heard && !out[1].heard, "同一份列表里两种来源要分得开");
         }
 
         // 换了地址的已配对设备：rid 认出来了，所以它带着指纹从新地址应答。
@@ -629,6 +632,7 @@ int main(int argc, char **argv)
             const QList<DeviceInfo> out = afmu::mergeDevices({moved}, {a});
             check(out.size() == 1, "同一台设备不该因为换了地址在列表里出现两行");
             check(out[0].host == QStringLiteral("192.168.1.77"), "活的应答说的才是它现在在哪");
+            check(out[0].heard, "它刚应答过，不该被标成未应答");
         }
 
         // **解除配对之后那把锁必须当场消失。** 指纹是发现那一刻认出来的，

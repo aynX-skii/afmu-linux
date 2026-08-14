@@ -22,12 +22,21 @@ struct DeviceInfo
      * **它必须跟着配对表一起失效。** 见 afmu::mergeDevices。
      */
     QString fingerprint;
+
+    /**
+     * 这一轮发现**真的听到**它应答了。
+     *
+     * 假 = 这一行是从配对表里列出来的，地址是上次见到它的那个，此刻它可能开着、
+     * 也可能关着 —— 本机无从判断：没收到 UDP 应答，和设备关机，在这里长得一模一样。
+     * 所以界面上必须把它和真的应答过的区分开，否则「列表里有」会被读成「它在线」。
+     */
+    bool heard = false;
 };
 
 inline bool operator==(const DeviceInfo &a, const DeviceInfo &b)
 {
     return a.name == b.name && a.os == b.os && a.host == b.host && a.port == b.port
-           && a.fingerprint == b.fingerprint;
+           && a.fingerprint == b.fingerprint && a.heard == b.heard;
 }
 
 class DeviceModel : public QAbstractListModel
@@ -43,6 +52,7 @@ public:
         AddressRole,
         FingerprintRole,
         PairedRole,
+        HeardRole,
     };
     explicit DeviceModel(QObject *parent = nullptr);
 

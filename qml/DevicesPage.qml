@@ -173,10 +173,16 @@ Item {
                     // 「已配对就藏起来」的按钮一直显示，锁图标也一直亮着 —— 界面对
                     // "这台设备配过没有"这个问题给出的答案是恒定的，而且是错的。
                     required property bool paired
+                    // 这次扫描真的听到它应答了吗。假 = 这一行是从配对表里列出来的，
+                    // 地址是上次见到它的那个。**必须显示出来**：本机分不清「设备关着」
+                    // 和「广播被吃掉了」，两种都表现为没应答，所以只能如实说「没应答」，
+                    // 不能让「列表里有它」被读成「它开着」。
+                    required property bool heard
 
                     width: list.width - (list.ScrollBar.vertical.visible ? 10 : 0)
                     height: 62
                     radius: Theme.radiusSm
+                    opacity: heard ? 1 : 0.62
                     color: itemMa.containsMouse ? Theme.hover : Theme.surfaceAlt
                     border.width: 1
                     border.color: App.connected && App.peerHost === host && App.peerPort === port
@@ -238,10 +244,23 @@ Item {
                                 }
                             }
                             Text {
-                                text: host + ":" + port + "  ·  " + os
+                                text: heard
+                                      ? host + ":" + port + "  ·  " + os
+                                      : host + ":" + port + "  ·  " + Tr.t("上次见到它的地址")
                                 font.pixelSize: Theme.fsXs
                                 color: Theme.textFaint
+                                elide: Text.ElideRight
+                                Layout.fillWidth: true
                             }
+                        }
+
+                        // 没应答的照样能点：广播走不通不等于 TCP 走不通 —— 恰恰是
+                        // 最常见的一种情况（Windows 防火墙默认拦入站 UDP，AP 隔离，
+                        // 手机息屏）。所以这里说的是"它没应答"，不是"它不可用"。
+                        StatBadge {
+                            visible: !heard
+                            label: Tr.t("未应答")
+                            tone: Theme.textFaint
                         }
 
                         StatBadge {
