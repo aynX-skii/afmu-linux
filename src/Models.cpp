@@ -102,6 +102,18 @@ void afmu::upsertDevice(QList<DeviceInfo> &list, const DeviceInfo &d)
     list.append(d);
 }
 
+bool afmu::removeDevice(QList<DeviceInfo> &list, const QString &host, int port)
+{
+    const auto sameAddress = [&host, port](const DeviceInfo &d) {
+        return d.host == host && d.port == port;
+    };
+    const auto it = std::remove_if(list.begin(), list.end(), sameAddress);
+    if (it == list.end())
+        return false;
+    list.erase(it, list.end());
+    return true;
+}
+
 QList<DeviceInfo> afmu::mergeDevices(const QList<DeviceInfo> &heard,
                                      const QList<PeerRecord> &paired)
 {

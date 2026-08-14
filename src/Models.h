@@ -86,6 +86,9 @@ namespace afmu {
  */
 void upsertDevice(QList<DeviceInfo> &list, const DeviceInfo &d);
 
+/** 按 host:port 摘掉一条。返回是否真的摘掉了。见 AppController::forgetDevice。 */
+bool removeDevice(QList<DeviceInfo> &list, const QString &host, int port);
+
 /**
  * 界面上那份设备列表 = 这次发现听到的 ∪ 配对表里的。
  *

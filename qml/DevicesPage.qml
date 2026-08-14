@@ -6,6 +6,11 @@ import Afmu
 Item {
     id: page
 
+    // 等用户确认的那一次「忘记」。见列表里的垃圾桶按钮。
+    property string pendingForgetHost: ""
+    property int pendingForgetPort: 0
+    property string pendingForgetName: ""
+
     // 把输入框里的 token 落进配置。
     //
     // 光靠 onEditingFinished 是不够的：本页的按钮全是 focusPolicy: Qt.NoFocus，
@@ -297,6 +302,33 @@ Item {
                             variant: FlatButton.Variant.Subtle
                             onClicked: page.connectTo(host, port, name, os)
                         }
+
+                        IconButton {
+                            iconName: "trash"
+                            tip: Tr.t("忘记这台设备")
+                            activeColor: Theme.danger
+                            onClicked: {
+                                // 没配对过的那一行只是这一轮扫描的观察结果，删掉什么
+                                // 都不损失 —— 设备真在网上，下次扫描它自己会回来。
+                                // 为这种事弹个窗问一句，纯属挡路。
+                                if (!paired) {
+                                    App.forgetDevice(host, port)
+                                    return
+                                }
+                                // 配对过的完全是另一回事：配对表在 v2 里就是访问控制
+                                // 列表，删掉这条等于关掉一道门，而要再打开得两台设备
+                                // 都在手边重新配一次。这种事必须先问。
+                                page.pendingForgetHost = host
+                                page.pendingForgetPort = port
+                                page.pendingForgetName = name
+                                forgetDialog.open2(
+                                    Tr.t("忘记这台设备"),
+                                    Tr.t("这台设备已经配对过。忘记之后它无法再连接本机，")
+                                        + Tr.t("要用得两台设备都在手边重新配对一次。") + "\n\n"
+                                        + (name !== "" ? name + "\n" : "") + host + ":" + port,
+                                    true)
+                            }
+                        }
                     }
                 }
             }
@@ -365,5 +397,16 @@ Item {
     }
 
     PairDialog { id: pairDialog }
+
+    ConfirmDialog {
+        id: forgetDialog
+        confirmText: Tr.t("忘记")
+        onAccepted: {
+            App.forgetDevice(page.pendingForgetHost, page.pendingForgetPort)
+            page.pendingForgetHost = ""
+            page.pendingForgetPort = 0
+            page.pendingForgetName = ""
+        }
+    }
     AuthWaitDialog {}
 }

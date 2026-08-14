@@ -685,6 +685,14 @@ int main(int argc, char **argv)
                                                  QStringLiteral("192.168.1.10"), 8765, {}});
             check(heard.size() == 1, "同一个 host:port 只占一行");
             check(heard[0].fingerprint == fpA, "空指纹不该把认出来的设备打回不认识");
+
+            // 「忘记设备」把这一行从「听到的」里摘掉。配对关系是另一半，由
+            // PeerStore::remove 负责 —— 见 AppController::forgetDevice。
+            check(!afmu::removeDevice(heard, QStringLiteral("192.168.1.99"), 8765),
+                  "摘一个不在里面的地址应当报告没摘到");
+            check(heard.size() == 1, "没摘到就不该动列表");
+            check(afmu::removeDevice(heard, QStringLiteral("192.168.1.10"), 8765), "摘掉应当成功");
+            check(heard.isEmpty(), "摘完就没了");
         }
     }
 

@@ -198,6 +198,14 @@ public:
 public slots:
     void scan();
     void connectToDevice(const QString &host, int port, const QString &name, const QString &os);
+    /**
+     * 把设备列表里的一行忘掉。
+     *
+     * 两种行：没配对过的只是这一轮扫描的观察结果，删掉什么都不损失（设备真在网上，
+     * 下次扫描它自己回来）；配对过的连配对关系一起删 —— 那等于关掉一道门，
+     * **界面必须先问一句**再调这里。
+     */
+    Q_INVOKABLE void forgetDevice(const QString &host, int port);
     void connectManual(const QString &hostPort, const QString &token);
     void disconnectPeer();
 

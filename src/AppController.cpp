@@ -341,6 +341,36 @@ void AppController::rebuildDevices()
     m_devices->setAll(afmu::mergeDevices(m_heard, m_peers->all()));
 }
 
+void AppController::forgetDevice(const QString &host, int port)
+{
+    QString fp;
+    QString who = host;
+    for (int i = 0; i < m_devices->rowCount(); ++i) {
+        const DeviceInfo d = m_devices->at(i);
+        if (d.host == host && d.port == port) {
+            fp = d.fingerprint;
+            if (!d.name.isEmpty())
+                who = d.name;
+            break;
+        }
+    }
+
+    // 「听到的」只是这一轮的观察结果，删掉不损失任何东西 —— 设备真在网上的话，
+    // 下次扫描它自己会回来。这正是想要的：忘记的是**记录**，不是把设备拉黑。
+    afmu::removeDevice(m_heard, host, port);
+
+    if (fp.isEmpty()) {
+        rebuildDevices(); // 没配对过，那一行到此为止
+        appendLog(T(QStringLiteral("已从列表移除 %1")).arg(who));
+        return;
+    }
+
+    // 配对关系才是真正要"忘"的东西。v2 里配对表就是访问控制列表 —— 删掉这条，
+    // 这台设备连 TLS 都握不上了，要再用得两台设备都在手边重新配一次。
+    m_peers->remove(fp); // 触发 PeerStore::changed → rebuildDevices
+    appendLog(T(QStringLiteral("已忘记 %1，配对关系已解除")).arg(who));
+}
+
 void AppController::scan()
 {
     if (m_scanning)
