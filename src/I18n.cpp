@@ -393,6 +393,8 @@ const Entry kEnglish[] = {
      "No devices found. Check that the phone is on the same Wi-Fi with its server on, "},
     {"或用「手动连接」直接输入地址。", "or use manual connect to enter the address directly."},
     {"没收到广播应答，复用上次地址 %1:%2", "No broadcast reply; reusing the last address %1:%2"},
+    {"没收到广播应答，列出的是配对表里的 %1 台设备，地址是上次见到它们的那个",
+     "No broadcast reply — listing %1 paired device(s) at the address each was last seen at"},
     {"连接失败：%1", "Connection failed: %1"},
     {"列目录失败：%1", "Listing failed: %1"},
     {"新建目录失败：%1", "Could not create folder: %1"},
@@ -501,7 +503,7 @@ const Entry kEnglish[] = {
      "The receiving server was not running — starting it, or nothing can be sent here"},
 
     {"%1 已扫码配对（%2:%3）", "%1 paired by QR code (%2:%3)"},
-    {"已与 %1 配对", "Paired with %1"},
+    // 「已与 %1 配对」在上面配对那一段里已经有了，同样的译文写两遍没有意义。
     {"%1 那边已经没有本机的配对记录了（只剩单边）",
      "%1 no longer has a pairing record for this PC — the pairing is one-sided"},
     {"对端不再认得本机 —— 在设备列表点「加密配对」重新配一次",

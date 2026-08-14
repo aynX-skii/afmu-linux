@@ -86,13 +86,15 @@ AppController::AppController(QObject *parent)
 
     connect(m_discovery, &Discovery::deviceFound, this,
             [this](const QString &name, const QString &os, const QString &host, int port,
-                   const QString &fp) {
-                m_devices->upsert(DeviceInfo{name, os, host, port, fp});
-            });
+                   const QString &fp) { noteDevice(DeviceInfo{name, os, host, port, fp}); });
     connect(m_discovery, &Discovery::probeFinished, this, [this] {
         m_scanning = false;
         emit scanningChanged();
-        if (m_devices->rowCount() > 0)
+        // 「有没有听到应答」问的是**发现**，不是列表里有几行 —— 列表里现在还有
+        // 配对表补进来的那些，拿它判断会把下面的兜底整个绕过去。
+        const bool heardBack = !m_heard.isEmpty();
+        rebuildDevices();
+        if (heardBack)
             return;
         // 很多路由器会吃掉广播，但单播 TCP 是通的：复用上次连过的地址
         // 有 token，或者配对表里有设备 —— 后者是 v2 的情况，它压根不需要 token，
@@ -106,10 +108,24 @@ AppController::AppController(QObject *parent)
                             QStringLiteral("unknown"));
             return;
         }
+        // 一台都没应答，但配对表里有 —— 这不是「没有发现设备」，列表上就摆着能点的。
+        if (m_devices->rowCount() > 0) {
+            appendLog(T(QStringLiteral("没收到广播应答，列出的是配对表里的 %1 台设备，"
+                                       "地址是上次见到它们的那个"))
+                          .arg(m_devices->rowCount()));
+            return;
+        }
         notify(T(QStringLiteral("没有发现设备。确认对方设备与本机在同一 Wi-Fi、接收服务已打开，"))
                    + T(QStringLiteral("或用「手动连接」直接输入地址。")),
                true);
     });
+    // 配对表一变，设备列表就得跟着重算：配对成功的当场出现在列表里，解除配对的
+    // 当场丢掉那把锁。noteSeen 也会走到这儿（rid 认出某台换了地址的设备），
+    // 于是列表里那一行的地址跟着更新。
+    connect(m_peers, &PeerStore::changed, this, &AppController::rebuildDevices);
+    // 配对表是在上面 load 的，那一下的 changed 没人接。补一次，好让已配对的设备
+    // **一开窗就在列表里** —— 用户不该为了看见一台已经配过的设备去点一下扫描。
+    rebuildDevices();
     connect(m_discovery, &Discovery::logMessage, this, &AppController::appendLog);
 
     // 配对模式：界面上有个倒计时，所以开着的时候每秒通知一次
@@ -167,9 +183,9 @@ AppController::AppController(QObject *parent)
                 appendLog(T(QStringLiteral("%1 已扫码配对（%2:%3）")).arg(who, host).arg(port));
                 m_config->setPeerToken(token);
                 // 指纹留空：这是 v1 的回填路径，此刻没有握手过的证书可填。
-                // DeviceModel::upsert 会保留已有的那个，不会把认出来的设备打回「不认识」。
-                m_devices->upsert(DeviceInfo{who, os.isEmpty() ? QStringLiteral("unknown") : os,
-                                             host, port, {}});
+                // afmu::upsertDevice 会保留已有的那个，不会把认出来的设备打回「不认识」。
+                noteDevice(DeviceInfo{who, os.isEmpty() ? QStringLiteral("unknown") : os, host,
+                                      port, {}});
                 notify(T(QStringLiteral("已与 %1 配对")).arg(who), false);
                 if (!m_connected)
                     connectToDevice(host, port, who, os);
@@ -314,11 +330,25 @@ void AppController::clearLog()
 
 // ---------------------------------------------------------------- 发现 / 连接
 
+void AppController::noteDevice(const DeviceInfo &d)
+{
+    afmu::upsertDevice(m_heard, d);
+    rebuildDevices();
+}
+
+void AppController::rebuildDevices()
+{
+    m_devices->setAll(afmu::mergeDevices(m_heard, m_peers->all()));
+}
+
 void AppController::scan()
 {
     if (m_scanning)
         return;
-    m_devices->clear();
+    // 清掉的是「听到的」，不是整个列表：配对表里那些立刻由 rebuildDevices 补回来，
+    // 所以扫描期间已配对的设备一直在，不会先消失再出现。
+    m_heard.clear();
+    rebuildDevices();
     m_scanning = true;
     emit scanningChanged();
     m_discovery->startProbe(m_config->discoverTimeoutMs());
@@ -408,6 +438,8 @@ void AppController::requestAuthorization(const QString &host, int port, const QS
     m_authError.clear(); // 上一次的失败被这一次顶掉
     emit authChanged();
     // 倒计时从**按下按钮**这一刻开始走，不是从对端第一次应答开始。见 pollAuthorization。
+    // （第一次应答回来之后，下面会用对端给的 expires 重新起算 —— 那才是它那边
+    // 真正的有效期。这里管的是在此之前那段没人兜底的时间。）
     m_authTimer->start();
 
     // 下面要把本机端口报给对端，报之前得保证那个端口真有人听。
@@ -479,7 +511,10 @@ void AppController::requestPairing(const QString &host, int port, const QString 
         return;
     }
     if (!m_server->tlsReady()) {
-        notify(T(QStringLiteral("本机的加密身份不可用，无法配对")), true);
+        // 这条也进弹窗，不走提示条：用户刚点了「加密配对」，一条 5 秒后消失的
+        // 提示条落在窗口底部，看到的仍然是"点了没反应"。跟 authError 是同一件事，
+        // 区别只是失败得更早 —— 早到弹窗还没来得及出现。
+        showAuthFailure(T(QStringLiteral("本机的加密身份不可用，无法配对")), true);
         return;
     }
 
@@ -828,16 +863,21 @@ void AppController::finishAuthorization(const QString &status)
     // 这一行只要 86 毫秒 —— 用户看到的就是"弹窗闪一下就没了、手机上什么都没弹"，
     // 而唯一的解释在窗口底部那条 5 秒的提示条上，视线根本不在那儿。
     // 失败是这条流程的常态，常态不能只有一个转瞬即逝的落点。
-    m_authErrorPairing = wasPairing;
-    m_authError = failureMessage(status, wasPairing);
-    emit authChanged();
-    if (!m_authError.isEmpty())
-        appendLog(m_authError);
+    showAuthFailure(failureMessage(status, wasPairing), wasPairing);
 
     // 成功那两句仍然走提示条：它不需要用户做任何事，也不该挡住下一步操作。
     // （配对成功的那句已经在 pollPairing 里说过了。）
     if (!wasPairing && status == QLatin1String("granted"))
         notify(T(QStringLiteral("已获授权，正在连接 %1")).arg(m_peerName), false);
+}
+
+void AppController::showAuthFailure(const QString &why, bool pairing)
+{
+    m_authError = why;
+    m_authErrorPairing = pairing;
+    emit authChanged();
+    if (!why.isEmpty())
+        appendLog(why);
 }
 
 void AppController::dismissAuthError()
@@ -892,12 +932,11 @@ void AppController::approveIncomingAuth()
         rec.os = r.os;
         rec.lastHost = r.host;
         rec.lastPort = r.port > 0 ? r.port : int(afmu::kDefaultHttpPort);
+        // 写进配对表就够了：PeerStore::changed 会把设备列表重算一遍，这台设备
+        // 当场带着锁出现在里面。（以前这里还要往列表里补一条，理由是"否则用户
+        // 点完允许，那台设备在列表里看起来毫无变化"—— 现在那件事自己会发生。）
         m_peers->upsert(rec);
         m_incomingAuth->decide(r.id, true);
-        // 列表里同时标成「已配对」：否则用户点完允许，那台设备在列表里看起来毫无变化。
-        m_devices->upsert(DeviceInfo{rec.name.isEmpty() ? rec.lastHost : rec.name,
-                                     rec.os.isEmpty() ? QStringLiteral("unknown") : rec.os,
-                                     rec.lastHost, rec.lastPort, rec.fp});
         appendLog(T(QStringLiteral("已与 %1 配对，指纹 %2"))
                       .arg(r.name, afmu::Identity::group(r.peerFp)));
         notify(T(QStringLiteral("已与 %1 配对")).arg(r.name), false);
@@ -907,9 +946,9 @@ void AppController::approveIncomingAuth()
     // token 到这一刻才离开本机。对方随后会用它调 /api/pair 把自己的 token 回填过来，
     // 于是两个方向一起通（PROTOCOL.md §3.9）。
     m_incomingAuth->decide(r.id, true);
-    // 同上：v1 授权连接没有证书，指纹留空由 upsert 保留旧值
-    m_devices->upsert(DeviceInfo{r.name, r.os.isEmpty() ? QStringLiteral("unknown") : r.os, r.host,
-                                 r.port > 0 ? r.port : int(afmu::kDefaultHttpPort), {}});
+    // 同上：v1 授权连接没有证书，指纹留空由 afmu::upsertDevice 保留旧值
+    noteDevice(DeviceInfo{r.name, r.os.isEmpty() ? QStringLiteral("unknown") : r.os, r.host,
+                          r.port > 0 ? r.port : int(afmu::kDefaultHttpPort), {}});
     appendLog(T(QStringLiteral("已允许 %1（%2）连接本机")).arg(r.name, r.host));
     notify(T(QStringLiteral("已允许 %1 连接")).arg(r.name), false);
 }

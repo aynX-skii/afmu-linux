@@ -2,6 +2,7 @@
 
 #include "Config.h"
 #include "Identity.h"
+#include "Models.h"
 #include "PairSas.h"
 
 #include <QHash>
@@ -277,10 +278,21 @@ private:
      * 两种都不需要在弹窗里解释）。
      */
     static QString failureMessage(const QString &status, bool wasPairing);
+    /**
+     * 把失败摆到弹窗里（并记一条日志）。空串 = 这次没有失败要说，等于收掉上一条。
+     * 请求发出去之前就失败的那几种也走这里 —— 那时弹窗还没出现过，可它同样是
+     * "用户点了按钮，然后什么都没发生"。
+     */
+    void showAuthFailure(const QString &why, bool pairing);
     /** 授权通过后把本机的地址和 token 回填给对端，一次配对打通两个方向。 */
     void pushPairBack();
     /** 见 forgotUsPeer。只在值真的变了时发信号，免得每次连接都刷一遍界面。 */
     void setForgotUsPeer(const QString &hostPort);
+
+    /** 记下一台**听到的**设备，并把列表重算一遍。见 m_heard。 */
+    void noteDevice(const DeviceInfo &d);
+    /** 把界面上那份设备列表重算一遍：m_heard ∪ 配对表。见 afmu::mergeDevices。 */
+    void rebuildDevices();
 
     Config *m_config = nullptr;
     I18n *m_i18n = nullptr;
@@ -294,6 +306,15 @@ private:
     std::unique_ptr<afmu::Identity> m_identity;
     HttpServer *m_server = nullptr;
     AuthRequests *m_incomingAuth = nullptr;
+
+    /**
+     * 这一轮发现**真的听到**的设备，外加对端主动敲门时留下的那几台。
+     *
+     * 界面上那份列表是从它和配对表算出来的，不是直接攒的（见 rebuildDevices）。
+     * 分开存是必须的：只留一份合并结果的话，从配对表补进来的那些行下次就会被
+     * 当成"听到过"，于是解除配对之后它们再也不会离开列表 —— 而那一行还挂着锁。
+     */
+    QList<DeviceInfo> m_heard;
 
     bool m_scanning = false;
     bool m_connected = false;

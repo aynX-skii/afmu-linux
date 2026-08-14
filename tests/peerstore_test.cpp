@@ -14,6 +14,7 @@
 #include "../src/AuthRequests.h"
 #include "../src/Config.h"
 #include "../src/Identity.h"
+#include "../src/Models.h"
 #include "../src/PairSas.h"
 #include "../src/RollingId.h"
 #include "../src/PeerStore.h"
@@ -577,6 +578,109 @@ int main(int argc, char **argv)
             Config c;
             check(c.allowLegacyPlaintext(), "用户重新打开的明文必须留住");
             check(!c.plaintextJustDisabled(), "不该第二次触发迁移");
+        }
+    }
+
+    // ------------------------------------------------------------
+    // 设备列表 = 发现听到的 ∪ 配对表。这三条都是真机上出过的症状，不是假想：
+    // 「配对成功的电脑一点扫描就没了」「解除配对之后那一行还挂着锁」
+    // 「同一台设备在列表里出现两行」。
+    {
+        const QString fpA = fpOf('\x41');
+        const QString fpB = fpOf('\x42');
+
+        PeerRecord a;
+        a.fp = fpA;
+        a.name = QStringLiteral("台式机");
+        a.os = QStringLiteral("linux");
+        a.lastHost = QStringLiteral("192.168.1.10");
+        a.lastPort = 8765;
+
+        PeerRecord b;
+        b.fp = fpB;
+        b.name = QStringLiteral("笔记本");
+        b.lastHost = QStringLiteral("192.168.1.11");
+        b.lastPort = 8765;
+
+        // 广播一台都没答上来 —— Windows 防火墙、AP 隔离、手机息屏都会造成这个。
+        {
+            const QList<DeviceInfo> out = afmu::mergeDevices({}, {a, b});
+            check(out.size() == 2, "广播没应答时，配对表里的设备仍然要在列表里");
+            check(out[0].fingerprint == fpA, "从配对表列出来的设备带着指纹（界面据此显示锁）");
+            check(out[0].name == QStringLiteral("台式机"), "名字取配对表里的");
+            check(out[1].os == QStringLiteral("unknown"), "配对表里没记 os 时填 unknown");
+        }
+
+        // 陌生人应答了，已配对的那台没答 —— 老代码在这里把 A 丢掉了。
+        {
+            const DeviceInfo stranger{QStringLiteral("谁"), QStringLiteral("linux"),
+                                      QStringLiteral("192.168.1.99"), 8765, {}};
+            const QList<DeviceInfo> out = afmu::mergeDevices({stranger}, {a});
+            check(out.size() == 2, "扫到陌生设备不该把没应答的已配对设备挤掉");
+            check(out[0].host == QStringLiteral("192.168.1.99"), "听到的排在前面");
+            check(out[0].fingerprint.isEmpty(), "陌生人没有指纹，界面上不该有锁");
+        }
+
+        // 换了地址的已配对设备：rid 认出来了，所以它带着指纹从新地址应答。
+        // 配对表里那条还写着旧地址，不能因此再补一行。
+        {
+            const DeviceInfo moved{QStringLiteral("台式机"), QStringLiteral("linux"),
+                                   QStringLiteral("192.168.1.77"), 8765, fpA};
+            const QList<DeviceInfo> out = afmu::mergeDevices({moved}, {a});
+            check(out.size() == 1, "同一台设备不该因为换了地址在列表里出现两行");
+            check(out[0].host == QStringLiteral("192.168.1.77"), "活的应答说的才是它现在在哪");
+        }
+
+        // **解除配对之后那把锁必须当场消失。** 指纹是发现那一刻认出来的，
+        // 它自己不会过期；留着的话界面会继续说这台设备是"已配对、加密的"，
+        // 而配对表里已经没有它了 —— 那句话就是假的。
+        {
+            const DeviceInfo heard{QStringLiteral("台式机"), QStringLiteral("linux"),
+                                   QStringLiteral("192.168.1.10"), 8765, fpA};
+            const QList<DeviceInfo> out = afmu::mergeDevices({heard}, {});
+            check(out.size() == 1, "设备还在网上，行还要在");
+            check(out[0].fingerprint.isEmpty(), "配对表里没有了，指纹就得当场清掉");
+        }
+
+        // 没有可用地址的记录列出来也点不动（对方还没来敲过门）。
+        {
+            PeerRecord noAddr;
+            noAddr.fp = fpOf('\x43');
+            check(afmu::mergeDevices({}, {noAddr}).isEmpty(), "没有地址的配对记录不进设备列表");
+        }
+
+        // 同一批设备、只是某一行多了把锁：模型不该整份 reset（那会把列表弹回顶部）。
+        {
+            DeviceModel m;
+            const DeviceInfo plain{QStringLiteral("台式机"), QStringLiteral("linux"),
+                                   QStringLiteral("192.168.1.10"), 8765, {}};
+            DeviceInfo known = plain;
+            known.fingerprint = fpA;
+            m.setAll({plain});
+            int resets = 0;
+            int changes = 0;
+            QObject::connect(&m, &QAbstractItemModel::modelReset, [&resets] { ++resets; });
+            QObject::connect(&m, &QAbstractItemModel::dataChanged, [&changes] { ++changes; });
+            m.setAll({known});
+            check(resets == 0 && changes == 1, "行没变时只发 dataChanged");
+            check(m.at(0).fingerprint == fpA, "内容确实更新了");
+            m.setAll({known});
+            check(changes == 1, "内容一样时什么都不该发");
+            const DeviceInfo other{QStringLiteral("笔记本"), QStringLiteral("linux"),
+                                   QStringLiteral("192.168.1.11"), 8765, {}};
+            m.setAll({known, other});
+            check(resets == 1 && m.rowCount() == 2, "多出一行只能整份 reset");
+        }
+
+        // 认出来过一次就不再退回「不认识」：丢一个 rid 应答不代表换了设备。
+        {
+            QList<DeviceInfo> heard;
+            afmu::upsertDevice(heard, DeviceInfo{QStringLiteral("台式机"), QStringLiteral("linux"),
+                                                 QStringLiteral("192.168.1.10"), 8765, fpA});
+            afmu::upsertDevice(heard, DeviceInfo{QStringLiteral("台式机"), QStringLiteral("linux"),
+                                                 QStringLiteral("192.168.1.10"), 8765, {}});
+            check(heard.size() == 1, "同一个 host:port 只占一行");
+            check(heard[0].fingerprint == fpA, "空指纹不该把认出来的设备打回不认识");
         }
     }
 

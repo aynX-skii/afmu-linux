@@ -5,6 +5,8 @@
 #include <QJsonObject>
 #include <QLocale>
 
+#include <algorithm>
+
 // ---------------------------------------------------------------- DeviceModel
 
 DeviceModel::DeviceModel(QObject *parent)
@@ -47,33 +49,35 @@ QHash<int, QByteArray> DeviceModel::roleNames() const
     };
 }
 
-void DeviceModel::clear()
+void DeviceModel::setAll(const QList<DeviceInfo> &items)
 {
-    if (m_items.isEmpty())
+    if (m_items == items)
         return;
-    beginResetModel();
-    m_items.clear();
-    endResetModel();
-    emit countChanged();
-}
 
-void DeviceModel::upsert(const DeviceInfo &d)
-{
-    for (int i = 0; i < m_items.size(); ++i) {
-        if (m_items[i].host == d.host && m_items[i].port == d.port) {
-            const QString keepFp = d.fingerprint.isEmpty() ? m_items[i].fingerprint : d.fingerprint;
-            m_items[i] = d;
-            // 认出来过一次就不再退回「不认识」：丢一个 rid 应答（丢包、跨时间窗）
-            // 不代表这台设备不是它了，而界面上的「已配对」闪一下会很难看。
-            m_items[i].fingerprint = keepFp;
+    // 行还是那几行、只是某一行的内容变了（最常见的一种：rid 认出了一台，那一行
+    // 多出一把锁）—— 这时只发 dataChanged。整份 reset 会把 ListView 的滚动位置
+    // 弹回顶部，而这种更新在用户正看着列表的时候随时会来。
+    const bool sameRows = m_items.size() == items.size()
+                          && std::equal(m_items.cbegin(), m_items.cend(), items.cbegin(),
+                                        [](const DeviceInfo &a, const DeviceInfo &b) {
+                                            return a.host == b.host && a.port == b.port;
+                                        });
+    if (sameRows) {
+        for (int i = 0; i < items.size(); ++i) {
+            if (m_items[i] == items[i])
+                continue;
+            m_items[i] = items[i];
             emit dataChanged(index(i), index(i));
-            return;
         }
+        return;
     }
-    beginInsertRows({}, m_items.size(), m_items.size());
-    m_items.append(d);
-    endInsertRows();
-    emit countChanged();
+
+    const int before = m_items.size();
+    beginResetModel();
+    m_items = items;
+    endResetModel();
+    if (m_items.size() != before)
+        emit countChanged();
 }
 
 DeviceInfo DeviceModel::at(int row) const
@@ -81,6 +85,56 @@ DeviceInfo DeviceModel::at(int row) const
     if (row < 0 || row >= m_items.size())
         return {};
     return m_items.at(row);
+}
+
+void afmu::upsertDevice(QList<DeviceInfo> &list, const DeviceInfo &d)
+{
+    for (DeviceInfo &it : list) {
+        if (it.host == d.host && it.port == d.port) {
+            const QString keepFp = d.fingerprint.isEmpty() ? it.fingerprint : d.fingerprint;
+            it = d;
+            it.fingerprint = keepFp;
+            return;
+        }
+    }
+    list.append(d);
+}
+
+QList<DeviceInfo> afmu::mergeDevices(const QList<DeviceInfo> &heard,
+                                     const QList<PeerRecord> &paired)
+{
+    const auto stillPaired = [&paired](const QString &fp) {
+        return !fp.isEmpty()
+               && std::any_of(paired.cbegin(), paired.cend(),
+                              [&fp](const PeerRecord &r) { return r.fp == fp; });
+    };
+
+    QList<DeviceInfo> out;
+    out.reserve(heard.size() + paired.size());
+    for (DeviceInfo d : heard) {
+        if (!stillPaired(d.fingerprint))
+            d.fingerprint.clear(); // 见头文件：解除配对必须当场退回「不认识」
+        out.append(d);
+    }
+
+    for (const PeerRecord &r : paired) {
+        // 没有可用地址就列不出来 —— 这条记录目前只能靠对方先来敲门。
+        if (r.lastHost.isEmpty() || r.lastPort <= 0)
+            continue;
+        const bool listed = std::any_of(out.cbegin(), out.cend(), [&r](const DeviceInfo &d) {
+            // **先按指纹判重。** 这台设备刚从一个新地址应答过的话，它已经在上面了；
+            // 再按「上次已知地址」补一行，用户看到的就是同一台设备的两行，
+            // 其中一行还指向一个已经没人应的地址。
+            return (!d.fingerprint.isEmpty() && d.fingerprint == r.fp)
+                   || (d.host == r.lastHost && d.port == r.lastPort);
+        });
+        if (listed)
+            continue;
+        out.append(DeviceInfo{r.name.isEmpty() ? r.lastHost : r.name,
+                              r.os.isEmpty() ? QStringLiteral("unknown") : r.os, r.lastHost,
+                              r.lastPort, r.fp});
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------- RemoteFileModel
